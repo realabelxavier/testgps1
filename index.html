@@ -592,18 +592,30 @@
             localStorage.setItem('psp_scheduled_radars', JSON.stringify(state.pspRadars));
         }
 
+        // CARTO Basemaps now use the `key` query parameter.
+        // Keep the rastertiles/ prefix for all three supported styles.
         function getCartoTileUrl(style) {
-            return `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`;
+            const stylePath = {
+                dark_all: 'rastertiles/dark_all',
+                light_all: 'rastertiles/light_all',
+                'rastertiles/voyager': 'rastertiles/voyager'
+            }[style] || 'rastertiles/dark_all';
+
+            return `https://{s}.basemaps.cartocdn.com/${stylePath}/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_API_KEY)}`;
         }
 
         function initMap() {
-            map = L.map('map', { zoomControl: false, attributionControl: false }).setView(state.userPos, 14);
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: true
+            }).setView(state.userPos, 14);
 
-            // Using official CARTO Basemaps with API key
+            // CARTO Basemaps raster tiles.
             cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
-                maxZoom: 19,
+                maxZoom: 20,
                 subdomains: 'abcd',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                crossOrigin: true
             }).addTo(map);
 
             pspRadarLayerGroup = L.layerGroup().addTo(map);
@@ -624,8 +636,10 @@
                 map.removeLayer(cartoTileLayer);
             }
             cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
-                maxZoom: 19,
-                subdomains: 'abcd'
+                maxZoom: 20,
+                subdomains: 'abcd',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                crossOrigin: true
             }).addTo(map);
         }
 
