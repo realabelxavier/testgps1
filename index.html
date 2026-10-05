@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GPS Navigation App - PSP Radar Planner</title>
+    <title>GPS Navigation App - CARTO Integrated</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -57,10 +57,6 @@
 
         .leaflet-routing-container {
             display: none !important;
-        }
-
-        .dark-tiles .leaflet-tile {
-            filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
         }
 
         .glass-panel {
@@ -441,6 +437,16 @@
             </div>
 
             <div class="py-4 space-y-5">
+                <!-- CARTO TILE STYLE SELECTOR -->
+                <div>
+                    <label class="block font-medium text-white text-sm mb-1">CARTO Map Style</label>
+                    <select id="cartoStyleSelect" class="bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 w-full focus:outline-none focus:border-blue-500">
+                        <option value="dark_all">CARTO Dark Matter (Night Drive)</option>
+                        <option value="rastertiles/voyager">CARTO Voyager (Waze / Day Navigation)</option>
+                        <option value="light_all">CARTO Positron (High Contrast Light)</option>
+                    </select>
+                </div>
+
                 <!-- AVOID TOLLS TOGGLE -->
                 <div class="flex items-center justify-between">
                     <div>
@@ -449,6 +455,18 @@
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" id="avoidTollsToggle" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
+                <!-- Voice Navigation Toggle -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="font-medium text-white text-sm">Voice Navigation</div>
+                        <div class="text-xs text-slate-400">Spoken turn-by-turn guidance</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="voiceNavToggle" checked class="sr-only peer">
                         <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                     </label>
                 </div>
@@ -464,18 +482,6 @@
                         <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
                     </label>
                 </div>
-
-                <!-- Dark Map Theme Toggle -->
-                <div class="flex items-center justify-between">
-                    <div>
-                        <div class="font-medium text-white text-sm">Night Mode Map</div>
-                        <div class="text-xs text-slate-400">Dark high-contrast theme for driving</div>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="darkThemeToggle" checked class="sr-only peer">
-                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                </div>
             </div>
 
             <div class="pt-4 border-t border-slate-800 text-right">
@@ -484,17 +490,18 @@
         </div>
     </div>
 
-    <!-- JAVASCRIPT APPLICATION LOGIC -->
     <script>
-        
-        // Helper to format date string YYYY-MM-DD for current/today
+        // CARTO API Credentials & Configuration
+        const CARTO_API_KEY = "cb1_4awl_1_c4e78ffd72d0943069f99046";
+
+        // Helper to format date string YYYY-MM-DD
         function getTodayDateString(offsetDays = 0) {
             const d = new Date();
             d.setDate(d.getDate() + offsetDays);
             return d.toISOString().split('T')[0];
         }
 
-        // Default Sample PSP Scheduled Radars for Portugal (including active today sample)
+        // Default Sample PSP Scheduled Radars for Portugal
         const samplePspRadars = [
             {
                 id: 'psp_sample_1',
@@ -535,11 +542,12 @@
         ];
 
         const state = {
-            userPos: [39.4065, -9.1360], // Caldas da Rainha area default
+            userPos: [39.4065, -9.1360], // Caldas da Rainha default
             userSpeed: 0,
             speedUnit: 'kmh',
+            cartoStyle: 'dark_all', // CARTO Dark Matter by default
             avoidTolls: false,
-            nightMode: true,
+            voiceEnabled: true,
             showUpcomingRadars: true,
             waypoints: [],
             pspRadars: [],
@@ -551,7 +559,7 @@
             lastWarnedRadarId: null
         };
 
-        let map, userMarker, tileLayer, pspRadarLayerGroup;
+        let map, userMarker, cartoTileLayer, pspRadarLayerGroup;
 
         window.onload = function() {
             loadPspRadarsFromStorage();
@@ -561,7 +569,6 @@
             renderWaypointsList();
             updatePspRadarsMapAndUI();
 
-            // Periodic check every 30 seconds to update active status based on current time
             setInterval(() => {
                 updatePspRadarsMapAndUI();
             }, 30000);
@@ -585,14 +592,19 @@
             localStorage.setItem('psp_scheduled_radars', JSON.stringify(state.pspRadars));
         }
 
+        function getCartoTileUrl(style) {
+            return `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`;
+        }
+
         function initMap() {
             map = L.map('map', { zoomControl: false, attributionControl: false }).setView(state.userPos, 14);
 
-            tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-
-            if (state.nightMode) {
-                document.getElementById('map').classList.add('dark-tiles');
-            }
+            // Using official CARTO Basemaps with API key
+            cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
+                maxZoom: 19,
+                subdomains: 'abcd',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            }).addTo(map);
 
             pspRadarLayerGroup = L.layerGroup().addTo(map);
 
@@ -604,6 +616,17 @@
             });
 
             userMarker = L.marker(state.userPos, { icon: userIcon }).addTo(map);
+        }
+
+        function updateCartoStyle(newStyle) {
+            state.cartoStyle = newStyle;
+            if (cartoTileLayer) {
+                map.removeLayer(cartoTileLayer);
+            }
+            cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
+                maxZoom: 19,
+                subdomains: 'abcd'
+            }).addTo(map);
         }
 
         function getRadarStatus(radar) {
@@ -619,7 +642,6 @@
             if (radar.date < todayStr) return 'expired';
             if (radar.date > todayStr) return 'upcoming';
 
-            // Same date, check time range
             if (currentMinutes >= startMins && currentMinutes <= endMins) {
                 return 'active';
             } else if (currentMinutes < startMins) {
@@ -638,7 +660,6 @@
 
                 if (status === 'active') activeCount++;
 
-                // Skip drawing if upcoming radars are toggled off
                 if (status === 'upcoming' && !state.showUpcomingRadars) return;
                 if (status === 'expired' && !state.showUpcomingRadars) return;
 
@@ -676,7 +697,6 @@
                 pspRadarLayerGroup.addLayer(m);
             });
 
-            // Update badge counter
             const activeBadge = document.getElementById('pspActiveBadge');
             activeBadge.textContent = activeCount;
             if (activeCount > 0) {
@@ -695,9 +715,8 @@
             state.pspRadars.forEach(radar => {
                 if (getRadarStatus(radar) !== 'active') return;
 
-                // Haversine distance formula to user
                 const d = getDistanceMeters(state.userPos[0], state.userPos[1], radar.lat, radar.lng);
-                if (d < 400) { // 400 meter warning threshold
+                if (d < 400) {
                     nearActiveRadar = radar;
                 }
             });
@@ -710,6 +729,7 @@
                 if (state.lastWarnedRadarId !== nearActiveRadar.id) {
                     state.lastWarnedRadarId = nearActiveRadar.id;
                     playAudioBeep();
+                    speakVoice(`Attention. Speed camera ahead on ${nearActiveRadar.street}. Speed limit ${nearActiveRadar.limit}`);
                 }
             } else {
                 warningBanner.classList.add('hidden');
@@ -744,6 +764,14 @@
                 osc.start();
                 osc.stop(ctx.currentTime + 0.4);
             } catch(e) {}
+        }
+
+        function speakVoice(text) {
+            if (!state.voiceEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
         }
 
         function renderPspRadarsList() {
@@ -855,7 +883,7 @@
         }
 
         function initEventListeners() {
-            // Map Zoom
+            // Map Zoom & Recenter
             document.getElementById('zoomInBtn').onclick = () => map.zoomIn();
             document.getElementById('zoomOutBtn').onclick = () => map.zoomOut();
             document.getElementById('recenterBtn').onclick = () => map.flyTo(state.userPos, 16);
@@ -897,7 +925,7 @@
             document.getElementById('closePspFormBtn').onclick = () => document.getElementById('pspAddModal').classList.add('hidden');
             document.getElementById('cancelPspFormBtn').onclick = () => document.getElementById('pspAddModal').classList.add('hidden');
 
-            // PSP Geocode street address
+            // Geocode street address for PSP Radar Form
             document.getElementById('pspGeocodeBtn').onclick = () => {
                 const street = document.getElementById('pspStreetInput').value.trim();
                 if (!street) return;
@@ -970,22 +998,25 @@
             document.getElementById('closeSettingsBtn').onclick = () => document.getElementById('settingsModal').classList.add('hidden');
             document.getElementById('saveSettingsBtn').onclick = () => document.getElementById('settingsModal').classList.add('hidden');
 
-            // Avoid Tolls
+            // CARTO Style Switcher
+            document.getElementById('cartoStyleSelect').onchange = (e) => {
+                updateCartoStyle(e.target.value);
+            };
+
+            // Avoid Tolls Toggle
             document.getElementById('avoidTollsToggle').onchange = (e) => {
                 state.avoidTolls = e.target.checked;
                 calculateRoute();
             };
 
+            // Voice Nav Toggle
+            document.getElementById('voiceNavToggle').onchange = (e) => {
+                state.voiceEnabled = e.target.checked;
+            };
+
             document.getElementById('showUpcomingRadarsToggle').onchange = (e) => {
                 state.showUpcomingRadars = e.target.checked;
                 updatePspRadarsMapAndUI();
-            };
-
-            document.getElementById('darkThemeToggle').onchange = (e) => {
-                state.nightMode = e.target.checked;
-                const mapEl = document.getElementById('map');
-                if (state.nightMode) mapEl.classList.add('dark-tiles');
-                else mapEl.classList.remove('dark-tiles');
             };
 
             // Search Handlers
@@ -996,6 +1027,7 @@
                 state.isNavigating = true;
                 document.getElementById('routeSummaryDock').classList.add('hidden');
                 map.flyTo(state.userPos, 17);
+                speakVoice("Starting navigation.");
             };
         }
 
@@ -1106,7 +1138,6 @@
                 profile: 'driving'
             };
 
-            // Avoid Tolls option
             if (state.avoidTolls) {
                 routerOptions.requestParameters = { exclude: 'toll' };
             }
@@ -1139,9 +1170,14 @@
                 state.routeInstructions = e.routes[0].instructions || [];
                 state.currentInstructionIndex = 0;
                 if (state.routeInstructions[0]) {
+                    const firstText = state.routeInstructions[0].text || "Follow route";
                     document.getElementById('turnDistance').textContent = `In ${Math.round(state.routeInstructions[0].distance)} m`;
-                    document.getElementById('turnInstruction').textContent = state.routeInstructions[0].text || "Follow route";
+                    document.getElementById('turnInstruction').textContent = firstText;
                     document.getElementById('turnBanner').classList.remove('hidden');
+
+                    if (state.isNavigating) {
+                        speakVoice(firstText);
+                    }
                 }
             });
         }
