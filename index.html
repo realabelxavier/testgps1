@@ -434,7 +434,7 @@
 
     <!-- SETTINGS MODAL -->
     <div id="settingsModal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
-        <div class="glass-panel bg-slate-900/95 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-700 flex flex-col">
+        <div class="glass-panel bg-slate-900/95 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-700 flex flex-col max-h-[92vh]">
             <div class="flex items-center justify-between pb-4 border-b border-slate-800">
                 <div class="flex items-center gap-2">
                     <i class="fa-solid fa-sliders text-blue-400 text-xl"></i>
@@ -445,7 +445,7 @@
                 </button>
             </div>
 
-            <div class="py-4 space-y-5">
+            <div class="py-4 space-y-5 overflow-y-auto custom-scroll flex-1">
                 <!-- LANGUAGE SELECTOR -->
                 <div>
                     <label class="block font-medium text-white text-sm mb-1" data-i18n="language">Language</label>
@@ -454,6 +454,18 @@
                         <option value="pt">Português (Portugal)</option>
                     </select>
                     <div class="text-xs text-slate-400 mt-1" data-i18n="languageDesc">Changes the app text and the voice guidance</div>
+                </div>
+
+                <!-- CARTO API KEY (stored on this device only) -->
+                <div>
+                    <label class="block font-medium text-white text-sm mb-1" data-i18n="keyLabel">CARTO API Key</label>
+                    <div class="flex gap-2">
+                        <input type="password" id="cartoKeyInput" autocomplete="off" autocapitalize="off" spellcheck="false"
+                            placeholder="Paste your CARTO API key" data-i18n-placeholder="keyPlaceholder"
+                            class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 flex-1 min-w-0">
+                        <button id="cartoKeySaveBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition" data-i18n="keySave">Save</button>
+                    </div>
+                    <div id="cartoKeyStatus" class="text-xs mt-1 text-slate-400"></div>
                 </div>
 
                 <!-- CARTO TILE STYLE SELECTOR -->
@@ -510,9 +522,6 @@
     </div>
 
     <script>
-        // CARTO API Credentials & Configuration
-        const CARTO_API_KEY = "cb1_4awl_1_c4e78ffd72d0943069f99046";
-
         // Helper to format date string YYYY-MM-DD
         function getTodayDateString(offsetDays = 0) {
             const d = new Date();
@@ -580,6 +589,10 @@
                 avoidTolls: 'Avoid Toll Roads (Evitar Portagens)', avoidTollsDesc: 'Routes will avoid paid highways when possible',
                 voiceNav: 'Voice Navigation', voiceNavDesc: 'Spoken turn-by-turn guidance',
                 showUpcoming: 'Show Upcoming PSP Radars', showUpcomingDesc: 'Display scheduled future mobile radars as amber icons', done: 'Done',
+                keyLabel: 'CARTO API Key', keyPlaceholder: 'Paste your CARTO API key', keySave: 'Save',
+                keyDesc: 'Stored only on this device. Needed to display the map.',
+                keyMissing: 'Enter your CARTO API key to display the map.',
+                keyError: 'The map tiles could not be loaded. Check that your CARTO API key is correct.',
                 // dynamic
                 pspRadar: 'PSP Radar', limit: 'Limit', schedule: 'Schedule',
                 status_active: 'active', status_upcoming: 'upcoming', status_expired: 'expired',
@@ -613,6 +626,10 @@
                 avoidTolls: 'Evitar Portagens', avoidTollsDesc: 'Os percursos evitam autoestradas com portagem sempre que possível',
                 voiceNav: 'Navegação por voz', voiceNavDesc: 'Indicações faladas passo a passo',
                 showUpcoming: 'Mostrar próximos radares PSP', showUpcomingDesc: 'Mostra os radares móveis agendados como ícones cor de laranja', done: 'Concluído',
+                keyLabel: 'Chave de API do CARTO', keyPlaceholder: 'Cole a sua chave de API do CARTO', keySave: 'Guardar',
+                keyDesc: 'Guardada apenas neste dispositivo. Necessária para mostrar o mapa.',
+                keyMissing: 'Introduza a sua chave de API do CARTO para mostrar o mapa.',
+                keyError: 'Não foi possível carregar o mapa. Verifique se a chave de API do CARTO está correta.',
                 pspRadar: 'Radar PSP', limit: 'Limite', schedule: 'Horário',
                 status_active: 'ativo', status_upcoming: 'próximo', status_expired: 'expirado',
                 noRadars: "Nenhum radar PSP agendado.<br>Clique em 'Adicionar radar' para inserir os locais publicados mensalmente.",
@@ -637,6 +654,16 @@
         }
 
         let currentLang = loadSavedLang();
+
+        // CARTO API key lives only in this device's browser storage, never in the source code
+        function loadCartoKey() {
+            try { return (localStorage.getItem('cartoApiKey') || '').trim(); } catch (e) { return ''; }
+        }
+        function saveCartoKey(k) {
+            try { if (k) localStorage.setItem('cartoApiKey', k); else localStorage.removeItem('cartoApiKey'); } catch (e) {}
+        }
+        let cartoApiKey = loadCartoKey();
+        let tileOk = 0, tileErr = 0, keyProblem = false;
 
         function t(key, vars) {
             let str = (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
@@ -677,6 +704,7 @@
             document.getElementById('pspFormTitle').textContent = (formId && formId.value) ? t('editRadar') : t('addRadarTitle');
             const sel = document.getElementById('languageSelect');
             if (sel) sel.value = currentLang;
+            renderKeyStatus();
 
             renderWaypointsList();
             if (typeof updatePspRadarsMapAndUI === 'function' && pspRadarLayerGroup) updatePspRadarsMapAndUI();
@@ -711,6 +739,7 @@
             renderWaypointsList();
             updatePspRadarsMapAndUI();
             applyLanguage(false);
+            if (!cartoApiKey) document.getElementById('settingsModal').classList.remove('hidden');
 
             setInterval(() => {
                 updatePspRadarsMapAndUI();
@@ -744,7 +773,57 @@
                 'rastertiles/voyager': 'rastertiles/voyager'
             }[style] || 'rastertiles/dark_all';
 
-            return `https://{s}.basemaps.cartocdn.com/${stylePath}/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_API_KEY)}`;
+            return `https://{s}.basemaps.cartocdn.com/${stylePath}/{z}/{x}/{y}{r}.png${cartoApiKey ? '?key=' + encodeURIComponent(cartoApiKey) : ''}`;
+        }
+
+        function createCartoLayer() {
+            tileOk = 0; tileErr = 0; keyProblem = false;
+            if (!cartoApiKey) return L.layerGroup();   // no key yet: nothing to request
+
+            const layer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
+                maxZoom: 20,
+                subdomains: 'abcd',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                crossOrigin: true
+            });
+            layer.on('tileload', () => {
+                tileOk++;
+                if (keyProblem) { keyProblem = false; renderKeyStatus(); }
+            });
+            layer.on('tileerror', () => {
+                tileErr++;
+                // several failures and not a single tile ever loaded while online -> most likely a wrong key
+                if (tileOk === 0 && tileErr >= 4 && navigator.onLine && !keyProblem) {
+                    keyProblem = true;
+                    renderKeyStatus();
+                    document.getElementById('settingsModal').classList.remove('hidden');
+                }
+            });
+            return layer;
+        }
+
+        function renderKeyStatus() {
+            const el = document.getElementById('cartoKeyStatus');
+            if (!el) return;
+            el.className = 'text-xs mt-1 ';
+            if (!cartoApiKey) {
+                el.textContent = t('keyMissing');
+                el.className += 'text-amber-400 font-semibold';
+            } else if (keyProblem) {
+                el.textContent = t('keyError');
+                el.className += 'text-red-400 font-semibold';
+            } else {
+                el.textContent = t('keyDesc');
+                el.className += 'text-slate-400';
+            }
+        }
+
+        function applyCartoKeyFromInput() {
+            const input = document.getElementById('cartoKeyInput');
+            cartoApiKey = input.value.trim();
+            saveCartoKey(cartoApiKey);
+            updateCartoStyle(state.cartoStyle);   // rebuilds the tile layer with the new key
+            renderKeyStatus();
         }
 
         function initMap() {
@@ -754,12 +833,7 @@
             }).setView(state.userPos, 14);
 
             // CARTO Basemaps raster tiles.
-            cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
-                maxZoom: 20,
-                subdomains: 'abcd',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                crossOrigin: true
-            }).addTo(map);
+            cartoTileLayer = createCartoLayer().addTo(map);
 
             pspRadarLayerGroup = L.layerGroup().addTo(map);
 
@@ -778,12 +852,7 @@
             if (cartoTileLayer) {
                 map.removeLayer(cartoTileLayer);
             }
-            cartoTileLayer = L.tileLayer(getCartoTileUrl(state.cartoStyle), {
-                maxZoom: 20,
-                subdomains: 'abcd',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                crossOrigin: true
-            }).addTo(map);
+            cartoTileLayer = createCartoLayer().addTo(map);
         }
 
         function getRadarStatus(radar) {
@@ -1167,12 +1236,21 @@
             // Settings Modal
             document.getElementById('settingsBtn').onclick = () => document.getElementById('settingsModal').classList.remove('hidden');
             document.getElementById('closeSettingsBtn').onclick = () => document.getElementById('settingsModal').classList.add('hidden');
-            document.getElementById('saveSettingsBtn').onclick = () => document.getElementById('settingsModal').classList.add('hidden');
+            document.getElementById('saveSettingsBtn').onclick = () => {
+                // also apply a key that was typed but not saved yet
+                if (document.getElementById('cartoKeyInput').value.trim() !== cartoApiKey) applyCartoKeyFromInput();
+                document.getElementById('settingsModal').classList.add('hidden');
+            };
 
             // CARTO Style Switcher
             document.getElementById('cartoStyleSelect').onchange = (e) => {
                 updateCartoStyle(e.target.value);
             };
+
+            // CARTO API key (stored only in this browser)
+            document.getElementById('cartoKeyInput').value = cartoApiKey;
+            document.getElementById('cartoKeySaveBtn').onclick = applyCartoKeyFromInput;
+            document.getElementById('cartoKeyInput').onkeyup = (e) => { if (e.key === 'Enter') applyCartoKeyFromInput(); };
 
             // Language Switcher (English / Português de Portugal)
             document.getElementById('languageSelect').onchange = (e) => {
