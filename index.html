@@ -2,897 +2,775 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>GPS Radar Navigator Portugal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GPS Navigation App</title>
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
     <!-- Leaflet CSS & JS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Leaflet Routing Machine CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts Inter -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 
     <style>
-        * {
-            box-sizing: border-box;
-            touch-action: manipulation;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        }
         html, body {
             height: 100%;
-            height: 100dvh;
-            width: 100vw;
+            width: 100%;
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #121212;
-            -webkit-user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             user-select: none;
+            -webkit-user-select: none;
         }
+
         #map {
-            height: 100%;
             width: 100%;
+            height: 100%;
             z-index: 1;
-            background: #e5e3df;
         }
-        /* Remove default Leaflet UI bloat for Google Maps look */
-        .leaflet-control-zoom, .leaflet-control-attribution {
+
+        /* Hide default routing control UI panel from leaflet-routing-machine, we build our custom modern HUD */
+        .leaflet-routing-container {
             display: none !important;
         }
-        /* Pulsing user GPS dot */
-        .user-location-marker {
-            position: relative;
+
+        .dark-tiles .leaflet-tile {
+            filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
         }
-        .user-dot {
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-panel-light {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+        }
+
+        /* Pulsing user position marker */
+        .user-location-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .user-location-inner {
             width: 18px;
             height: 18px;
-            background-color: #1a73e8;
+            background-color: #3b82f6;
             border: 3px solid #ffffff;
             border-radius: 50%;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            box-shadow: 0 0 15px #3b82f6;
         }
-        .user-heading-cone {
-            position: absolute;
-            top: -20px;
-            left: -11px;
-            width: 40px;
-            height: 40px;
-            background: radial-gradient(circle, rgba(26,115,232,0.4) 0%, rgba(26,115,232,0) 70%);
-            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-            transform-origin: center bottom;
-            pointer-events: none;
-        }
-        .user-pulse {
+        .user-location-pulse {
             position: absolute;
             width: 36px;
             height: 36px;
-            top: -9px;
-            left: -9px;
-            background-color: rgba(26, 115, 232, 0.25);
+            background-color: rgba(59, 130, 246, 0.35);
             border-radius: 50%;
-            animation: gpsPulse 2s infinite ease-out;
+            animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
         }
-        @keyframes gpsPulse {
-            0% { transform: scale(0.5); opacity: 1; }
-            100% { transform: scale(1.8); opacity: 0; }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.33); opacity: 0.8; }
+            80%, 100% { transform: scale(1.3); opacity: 0; }
         }
-        /* Custom scrollbar for mobile panels */
-        ::-webkit-scrollbar {
-            width: 4px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(156, 163, 175, 0.4);
-            border-radius: 4px;
+
+        /* Camera / Speed Radar Marker Pin Styling */
+        .radar-marker-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ef4444;
+            color: white;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-size: 12px;
+            font-weight: bold;
         }
     </style>
 </head>
-<body class="relative flex flex-col justify-between">
+<body class="bg-slate-900 text-slate-100 dark h-full w-full relative">
 
-    <!-- Top Google Maps Floating Search/Navigation Bar -->
-    <div id="top-nav-bar" class="absolute top-3 left-3 right-3 z-[1000] flex flex-col gap-2 transition-all duration-300">
-        <!-- Search Input Card -->
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 p-2.5 flex items-center gap-2">
-            <button onclick="togglePanel('menu-drawer')" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition">
-                <i class="fa-solid fa-bars text-lg"></i>
-            </button>
-
-            <div class="flex-1 flex flex-col">
-                <input type="text" id="destination-input" placeholder="Where to? (e.g. Lisboa, Porto, IC2)" 
-                       class="w-full bg-transparent text-sm font-semibold text-gray-800 dark:text-white focus:outline-none placeholder-gray-400">
-            </div>
-
-            <button onclick="searchAndRoute()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-md shadow-blue-500/20 active:scale-95 transition">
-                <i class="fa-solid fa-diamond-turn-right text-sm"></i>
-                <span class="font-bold">GO</span>
-            </button>
-        </div>
-
-        <!-- Navigation Active Banner (Visible during route guidance) -->
-        <div id="nav-banner" class="hidden bg-emerald-600 text-white rounded-2xl shadow-xl p-3 flex items-center justify-between animate-fade-in">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-emerald-700 flex items-center justify-center text-xl font-black">
-                    <i id="nav-step-icon" class="fa-solid fa-arrow-up"></i>
-                </div>
-                <div>
-                    <span id="nav-next-instruction" class="text-xs font-semibold block line-clamp-1">Proceed to destination</span>
-                    <span id="nav-route-stats" class="text-[11px] text-emerald-100 font-medium">-- km • -- min</span>
-                </div>
-            </div>
-            <button onclick="stopNavigation()" class="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg">
-                EXIT
-            </button>
-        </div>
-
-        <!-- Real-time Proximity Radar Warning Alert Box -->
-        <div id="proximity-alert-box" class="hidden bg-red-600 text-white rounded-2xl p-3 shadow-2xl border-2 border-red-400 flex items-center justify-between animate-bounce">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl text-yellow-300">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                </div>
-                <div>
-                    <h4 id="alert-radar-type" class="text-xs font-black tracking-wider uppercase">RADAR AHEAD</h4>
-                    <p id="alert-radar-location" class="text-[11px] text-red-100 line-clamp-1 font-medium">Fixed Speed Control</p>
-                </div>
-            </div>
-            <div class="text-right">
-                <span id="alert-radar-distance" class="text-base font-black tracking-tight">-- m</span>
-                <span id="alert-radar-limit" class="block text-[10px] font-bold bg-white text-red-700 px-1.5 py-0.5 rounded text-center mt-0.5">-- KM/H</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Leaflet Map Container -->
+    <!-- MAP CONTAINER -->
     <div id="map"></div>
 
-    <!-- Google Maps Style Right Floating Action Buttons (FABs) -->
-    <div class="absolute right-3 top-24 z-[1000] flex flex-col gap-2.5">
-        <!-- Center on Location / Driver POV Lock -->
-        <button id="btn-recenter" onclick="toggleFollowUser()" class="w-11 h-11 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 flex items-center justify-center active:scale-95 transition" title="Center Location">
-            <i id="recenter-icon" class="fa-solid fa-crosshairs text-lg"></i>
-        </button>
-
-        <!-- Toggle Map Tile Theme (Dark / Light) -->
-        <button onclick="toggleMapStyle()" class="w-11 h-11 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 flex items-center justify-center active:scale-95 transition" title="Map Layers">
-            <i class="fa-solid fa-layer-group text-lg text-blue-500"></i>
-        </button>
-
-        <!-- Sound Alert Toggle -->
-        <button id="btn-audio" onclick="toggleAudioAlerts()" class="w-11 h-11 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 flex items-center justify-center active:scale-95 transition" title="Audio Alerts">
-            <i id="audio-icon" class="fa-solid fa-volume-high text-lg text-emerald-500"></i>
-        </button>
-    </div>
-
-    <!-- Speedometer & Current GPS Status Widget (Bottom Left Over Map) -->
-    <div class="absolute left-3 bottom-24 z-[1000] bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl p-2.5 shadow-lg border border-gray-200 dark:border-gray-700 flex items-center gap-2.5">
-        <div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex flex-col items-center justify-center">
-            <span id="speedometer-val" class="text-sm font-black leading-none">0</span>
-            <span class="text-[8px] text-gray-400 font-bold uppercase">km/h</span>
-        </div>
-        <div class="flex flex-col">
-            <span id="gps-status-text" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> GPS ACTIVE
-            </span>
-            <span id="active-radars-count" class="text-[10px] font-medium text-gray-500 dark:text-gray-300">0 Radars nearby</span>
-        </div>
-    </div>
-
-    <!-- Android Bottom Navigation Control Sheet -->
-    <div class="absolute bottom-0 left-0 right-0 z-[1000] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 rounded-t-3xl shadow-2xl px-4 py-3 flex items-center justify-around">
-        <button onclick="togglePanel('radar-list-sheet')" class="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-            <i class="fa-solid fa-shield-halved text-lg"></i>
-            <span class="text-[10px] font-bold mt-1">Radars</span>
-        </button>
-
-        <button onclick="togglePanel('rvm-sheet')" class="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-            <i class="fa-solid fa-road text-lg text-amber-500"></i>
-            <span class="text-[10px] font-bold mt-1">Avg Speed</span>
-        </button>
-
-        <button onclick="togglePanel('add-psp-sheet')" class="w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg shadow-blue-500/30 flex items-center justify-center -mt-6 active:scale-90 transition">
-            <i class="fa-solid fa-plus text-xl"></i>
-        </button>
-
-        <button onclick="togglePanel('route-sheet')" class="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-            <i class="fa-solid fa-route text-lg text-indigo-500"></i>
-            <span class="text-[10px] font-bold mt-1">Routes</span>
-        </button>
-
-        <button onclick="togglePanel('menu-drawer')" class="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-            <i class="fa-solid fa-sliders text-lg"></i>
-            <span class="text-[10px] font-bold mt-1">Settings</span>
-        </button>
-    </div>
-
-    <!-- Bottom Sheet: Radar List -->
-    <div id="radar-list-sheet" class="hidden absolute bottom-16 left-0 right-0 z-[1000] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 rounded-t-3xl p-4 shadow-2xl max-h-[60dvh] flex flex-col">
-        <div class="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-3"></div>
-        <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-2">
-            <h3 class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <i class="fa-solid fa-camera-retro text-blue-600"></i> Portuguese Radar Catalog
-            </h3>
-            <button onclick="togglePanel('radar-list-sheet')" class="text-gray-400 text-sm"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-
-        <div class="flex gap-2 mb-3">
-            <button onclick="filterRadarCategory('all')" id="filter-cat-all" class="flex-1 py-1 text-xs font-semibold rounded-xl bg-blue-600 text-white">All</button>
-            <button onclick="filterRadarCategory('fixed')" id="filter-cat-fixed" class="flex-1 py-1 text-xs font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">Fixed</button>
-            <button onclick="filterRadarCategory('rvm')" id="filter-cat-rvm" class="flex-1 py-1 text-xs font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">Avg Speed</button>
-            <button onclick="filterRadarCategory('psp')" id="filter-cat-psp" class="flex-1 py-1 text-xs font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">PSP Mobile</button>
-        </div>
-
-        <div id="radar-items-container" class="overflow-y-auto space-y-2 pr-1 flex-1">
-            <!-- Dynamic items rendered here -->
-        </div>
-    </div>
-
-    <!-- Bottom Sheet: Add PSP Schedule Spot -->
-    <div id="add-psp-sheet" class="hidden absolute bottom-16 left-0 right-0 z-[1000] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 rounded-t-3xl p-4 shadow-2xl">
-        <div class="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-3"></div>
-        <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-2">
-            <h3 class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <i class="fa-solid fa-calendar-plus text-blue-600"></i> Add PSP Mobile Spot
-            </h3>
-            <button onclick="togglePanel('add-psp-sheet')" class="text-gray-400 text-sm"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-
-        <form id="psp-form" onsubmit="handleSavePSP(event)" class="space-y-3">
-            <div>
-                <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Location / Street Address</label>
-                <input type="text" id="psp-location" required placeholder="e.g., Av. da Boavista, Porto or N8 Caldas" 
-                       class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500">
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-                <div>
-                    <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Date</label>
-                    <input type="date" id="psp-date" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
-                </div>
-                <div>
-                    <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Speed Limit</label>
-                    <input type="number" id="psp-speed" placeholder="50, 80..." class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-                <div>
-                    <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Start Time</label>
-                    <input type="time" id="psp-start" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
-                </div>
-                <div>
-                    <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">End Time</label>
-                    <input type="time" id="psp-end" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
-                </div>
-            </div>
-
-            <button type="submit" id="btn-save-psp" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-lg shadow-blue-500/20">
-                <i class="fa-solid fa-map-pin mr-1"></i> Geocode & Pin Location
+    <!-- TOP HEADER: Destination Search & Turn Banner -->
+    <div class="absolute top-3 left-3 right-3 z-20 max-w-lg mx-auto flex flex-col gap-2">
+        <!-- Search Box -->
+        <div class="glass-panel rounded-2xl p-2.5 shadow-2xl flex items-center gap-2">
+            <i class="fa-solid fa-magnifying-glass text-slate-400 text-lg ml-2"></i>
+            <input type="text" id="searchInput" placeholder="Search destination or address..." 
+                class="bg-transparent border-none outline-none text-white placeholder-slate-400 w-full text-base font-medium">
+            <button id="clearSearchBtn" class="hidden text-slate-400 hover:text-white px-2">
+                <i class="fa-solid fa-xmark"></i>
             </button>
-        </form>
-    </div>
-
-    <!-- Bottom Sheet: Route Planner -->
-    <div id="route-sheet" class="hidden absolute bottom-16 left-0 right-0 z-[1000] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 rounded-t-3xl p-4 shadow-2xl">
-        <div class="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-3"></div>
-        <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-2">
-            <h3 class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <i class="fa-solid fa-route text-indigo-500"></i> Turn-by-Turn Route Planner
-            </h3>
-            <button onclick="togglePanel('route-sheet')" class="text-gray-400 text-sm"><i class="fa-solid fa-xmark"></i></button>
+            <button id="searchBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl transition shadow">
+                Go
+            </button>
         </div>
 
-        <div class="space-y-2.5">
-            <div>
-                <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Origin</label>
-                <div class="flex gap-2">
-                    <input type="text" id="route-start-input" placeholder="Current GPS or Address" class="flex-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
-                    <button onclick="setOriginToCurrentGPS()" class="bg-gray-100 dark:bg-gray-800 text-blue-600 px-3 rounded-xl text-xs font-bold border border-gray-200 dark:border-gray-700">GPS</button>
+        <!-- Autocomplete Suggestions List -->
+        <div id="searchResults" class="glass-panel rounded-2xl shadow-2xl hidden max-h-60 overflow-y-auto custom-scroll flex flex-col divide-y divide-slate-700/50">
+        </div>
+
+        <!-- Next Turn Banner (Shown during active routing) -->
+        <div id="turnBanner" class="glass-panel bg-slate-900/90 border-blue-500/30 rounded-2xl p-4 shadow-2xl hidden flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div id="turnIconContainer" class="w-12 h-12 rounded-xl bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-blue-400 text-2xl">
+                    <i id="turnIcon" class="fa-solid fa-arrow-up"></i>
+                </div>
+                <div>
+                    <div id="turnDistance" class="text-xl font-bold text-white">In 300 m</div>
+                    <div id="turnInstruction" class="text-xs text-slate-300 font-medium line-clamp-1">Turn right onto Avenida Principal</div>
                 </div>
             </div>
+            <button id="cancelRouteBtn" class="text-slate-400 hover:text-red-400 p-2 rounded-lg transition" title="Cancel Route">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+    </div>
 
-            <div>
-                <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Destination</label>
-                <input type="text" id="route-end-input" placeholder="Destination address or city" class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
+    <!-- SPEED & ROUTE INFO HUD (Top Right / Floating) -->
+    <div class="absolute top-20 right-3 z-20 flex flex-col gap-2 items-end">
+        <!-- Speedometer Badge -->
+        <div class="glass-panel rounded-2xl p-3 shadow-xl flex flex-col items-center justify-center min-w-[75px]">
+            <span id="speedValue" class="text-3xl font-extrabold tracking-tight text-emerald-400">0</span>
+            <span id="speedUnit" class="text-[10px] font-bold uppercase tracking-wider text-slate-400">km/h</span>
+        </div>
+        
+        <!-- Speed Limit Indicator (if available) -->
+        <div class="glass-panel border-2 border-red-500/80 bg-white/95 text-slate-900 font-extrabold w-11 h-11 rounded-full flex items-center justify-center shadow-lg">
+            <span id="speedLimitValue" class="text-sm">50</span>
+        </div>
+    </div>
+
+    <!-- CENTER CONTROL BAR & NAVIGATION DOCK -->
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md">
+        <div class="glass-panel rounded-3xl p-3 shadow-2xl flex items-center justify-between gap-1 border border-slate-700/50">
+            <!-- Zoom Out -->
+            <button id="zoomOutBtn" class="w-11 h-11 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white flex items-center justify-center transition active:scale-95 shadow">
+                <i class="fa-solid fa-minus text-base"></i>
+            </button>
+
+            <!-- WAYPOINTS BUTTON (Updated from Avg Speed) -->
+            <button id="waypointsBtn" class="flex-1 py-2.5 px-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 active:bg-slate-600 text-white font-medium flex items-center justify-center gap-2 transition shadow border border-slate-700/40">
+                <i class="fa-solid fa-route text-blue-400"></i>
+                <span class="text-xs md:text-sm font-semibold">Waypoints</span>
+                <span id="waypointBadge" class="hidden bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">0</span>
+            </button>
+
+            <!-- Zoom In -->
+            <button id="zoomInBtn" class="w-11 h-11 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white flex items-center justify-center transition active:scale-95 shadow">
+                <i class="fa-solid fa-plus text-base"></i>
+            </button>
+
+            <!-- Recenter Position -->
+            <button id="recenterBtn" class="w-11 h-11 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center transition active:scale-95 shadow shadow-blue-600/40">
+                <i class="fa-solid fa-location-crosshairs text-base"></i>
+            </button>
+
+            <!-- Settings Button -->
+            <button id="settingsBtn" class="w-11 h-11 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white flex items-center justify-center transition active:scale-95 shadow">
+                <i class="fa-solid fa-gear text-base"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- ROUTE SUMMARY DOCK (Bottom panel when route is active) -->
+    <div id="routeSummaryDock" class="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md hidden">
+        <div class="glass-panel bg-slate-900/95 rounded-2xl p-4 shadow-2xl border border-blue-500/30 flex items-center justify-between">
+            <div class="flex flex-col">
+                <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Remaining</span>
+                <div class="flex items-baseline gap-2">
+                    <span id="routeDistance" class="text-2xl font-bold text-white">-- km</span>
+                    <span id="routeEta" class="text-base font-semibold text-emerald-400">-- min</span>
+                </div>
             </div>
+            <div class="flex items-center gap-2">
+                <button id="startNavBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl transition shadow-lg flex items-center gap-2">
+                    <i class="fa-solid fa-navigation"></i>
+                    <span>Navigate</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
-            <!-- Avoid Toll Roads Checkbox -->
-            <div class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl">
+    <!-- WAYPOINTS MODAL / DRAWER -->
+    <div id="waypointsModal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel bg-slate-900/95 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-700 flex flex-col max-h-[85vh]">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800">
                 <div class="flex items-center gap-2">
-                    <i class="fa-solid fa-coins text-amber-500 text-xs"></i>
-                    <span class="text-xs font-bold text-gray-800 dark:text-white">Avoid Toll Roads</span>
+                    <i class="fa-solid fa-route text-blue-400 text-xl"></i>
+                    <h2 class="text-lg font-bold text-white">Manage Waypoints</h2>
                 </div>
-                <input type="checkbox" id="chk-avoid-tolls" onchange="syncTollPreference(this.checked)" class="w-4 h-4 text-blue-600 rounded">
+                <button id="closeWaypointsBtn" class="text-slate-400 hover:text-white p-2">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
             </div>
 
-            <div class="flex gap-2 pt-1">
-                <button onclick="computeOSRMRoute()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-lg shadow-indigo-500/20">
-                    <i class="fa-solid fa-location-arrow mr-1"></i> Start Route
+            <div class="py-4 space-y-3 overflow-y-auto custom-scroll flex-1" id="waypointsList">
+                <!-- Dynamically populated waypoints -->
+            </div>
+
+            <!-- Add Waypoint Input -->
+            <div class="pt-4 border-t border-slate-800 flex flex-col gap-2">
+                <div class="flex gap-2">
+                    <input type="text" id="addWaypointInput" placeholder="Add intermediate stop..." 
+                        class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 flex-1">
+                    <button id="addWaypointBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
+                        Add
+                    </button>
+                </div>
+                <button id="clearAllWaypointsBtn" class="text-xs text-red-400 hover:text-red-300 self-end font-medium pt-1">
+                    Clear All Waypoints
                 </button>
-                <button onclick="clearCurrentRoute()" class="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold px-4 rounded-xl text-xs">Clear</button>
             </div>
         </div>
     </div>
 
-    <!-- Drawer: Settings & Data Management -->
-    <div id="menu-drawer" class="hidden absolute bottom-16 left-0 right-0 z-[1000] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 rounded-t-3xl p-4 shadow-2xl">
-        <div class="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-3"></div>
-        <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-2">
-            <h3 class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <i class="fa-solid fa-gear text-gray-500"></i> Settings & Data Export
-            </h3>
-            <button onclick="togglePanel('menu-drawer')" class="text-gray-400 text-sm"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-
-        <div class="space-y-3">
-            <div class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <div>
-                    <span class="text-xs font-bold text-gray-800 dark:text-white block">Auto Driver POV Lock</span>
-                    <span class="text-[10px] text-gray-400">Keep camera centered on GPS position</span>
+    <!-- SETTINGS MODAL -->
+    <div id="settingsModal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel bg-slate-900/95 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-700 flex flex-col">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-blue-400 text-xl"></i>
+                    <h2 class="text-lg font-bold text-white">Navigation Settings</h2>
                 </div>
-                <input type="checkbox" id="chk-autolock" checked onchange="autoLockCamera = this.checked" class="w-4 h-4 text-blue-600 rounded">
-            </div>
-
-            <div class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <div>
-                    <span class="text-xs font-bold text-gray-800 dark:text-white block">Avoid Tolls (Portagens)</span>
-                    <span class="text-[10px] text-gray-400">Route via national roads (N/IC)</span>
-                </div>
-                <input type="checkbox" id="chk-avoid-tolls-settings" onchange="syncTollPreference(this.checked)" class="w-4 h-4 text-blue-600 rounded">
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 pt-1">
-                <button onclick="exportCustomData()" class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white p-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-gray-200 dark:border-gray-700">
-                    <i class="fa-solid fa-download text-blue-500"></i> Export JSON
+                <button id="closeSettingsBtn" class="text-slate-400 hover:text-white p-2">
+                    <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
-                <label class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white p-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-gray-200 dark:border-gray-700 cursor-pointer">
-                    <i class="fa-solid fa-upload text-emerald-500"></i> Import JSON
-                    <input type="file" accept=".json" class="hidden" onchange="importCustomData(event)">
-                </label>
+            </div>
+
+            <div class="py-4 space-y-5">
+                <!-- AVOID TOLLS TOGGLE (Requested Option) -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="font-medium text-white text-sm">Avoid Toll Roads (Evitar Portagens)</div>
+                        <div class="text-xs text-slate-400">Routes will avoid paid highways when possible</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="avoidTollsToggle" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
+                <!-- Dark Map Theme Toggle -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="font-medium text-white text-sm">Night Mode Map</div>
+                        <div class="text-xs text-slate-400">Dark high-contrast theme for night driving</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="darkThemeToggle" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
+                <!-- Speed Units Selector -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="font-medium text-white text-sm">Speed Units</div>
+                        <div class="text-xs text-slate-400">Choose preferred measurement unit</div>
+                    </div>
+                    <select id="speedUnitSelect" class="bg-slate-800 border border-slate-700 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-blue-500">
+                        <option value="kmh">km/h</option>
+                        <option value="mph">mph</option>
+                    </select>
+                </div>
+
+                <!-- Speed Radar Alert Toggle -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="font-medium text-white text-sm">Speed Camera Alerts</div>
+                        <div class="text-xs text-slate-400">Warn when approaching verified radars</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="radarAlertToggle" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="pt-4 border-t border-slate-800 text-right">
+                <button id="saveSettingsBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-2 rounded-xl text-sm transition">
+                    Done
+                </button>
             </div>
         </div>
     </div>
 
     <script>
-        // Global Map & GPS State
-        let map;
-        let tileLayer;
-        let isDarkStyle = false;
-        let userMarker = null;
-        let userCoords = null;
-        let userHeading = 0;
-        let watchPositionId = null;
-        let autoLockCamera = true;
-        let avoidTolls = false;
-        let audioAlertsEnabled = true;
-        let audioCtx = null;
-
-        // Routing state
-        let currentRoutePolyline = null;
-        let rvmPolylines = [];
-        let mapMarkers = [];
-
-        // CARTO API Key
-        const CARTO_KEY = 'cb1_4awl_1_c4e78ffd72d0943069f99046';
-
-        // Tile URLs with API key attached
-        const TILE_URLS = {
-            light: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`,
-            dark: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`
+        // APP STATE
+        const state = {
+            userPos: [39.4065, -9.1360], // Default center set near Caldas da Rainha, Portugal
+            userHeading: 0,
+            userSpeed: 0,
+            speedUnit: 'kmh',
+            avoidTolls: false,
+            nightMode: true,
+            radarAlertsEnabled: true,
+            waypoints: [], // Array of LatLng objects/labels
+            activeRouteControl: null,
+            routeInstructions: [],
+            currentInstructionIndex: 0,
+            isNavigating: false,
+            // REAL SPEED CAMERAS / RADARS LIST
+            // Note: Explicitly cleaned and verified - NO fake/non-existent radar in Caldas da Rainha
+            verifiedRadars: [
+                { id: 'r1', lat: 38.7580, lng: -9.1530, limit: 80, name: 'Lisboa 2ª Circular Radar' },
+                { id: 'r2', lat: 38.7071, lng: -9.1355, limit: 50, name: 'Lisboa Av. Infante D. Henrique' },
+                { id: 'r3', lat: 41.1579, lng: -8.6291, limit: 80, name: 'Porto VCI Radar' },
+                { id: 'r4', lat: 39.7436, lng: -8.8071, limit: 90, name: 'Leiria IC2 Speed Radar' }
+            ]
         };
 
-        // Fixed Radar Catalog (Portugal)
-        const FIXED_RADARS = [
-            { id: 'f1', name: 'Lisboa - Av. Lusíada', lat: 38.7512, lng: -9.1725, speed: 50, type: 'fixed' },
-            { id: 'f2', name: 'Lisboa - Segunda Circular (Campo Grande)', lat: 38.7601, lng: -9.1558, speed: 80, type: 'fixed' },
-            { id: 'f3', name: 'A2 South - Ponte 25 de Abril North Access', lat: 38.6800, lng: -9.1680, speed: 70, type: 'fixed' },
-            { id: 'f4', name: 'A8 - Km 14 (Louriçal / Cativelos)', lat: 38.8912, lng: -9.1750, speed: 100, type: 'fixed' },
-            { id: 'f5', name: 'Porto - VCI (Via de Cintra Interna - Km 9)', lat: 41.1685, lng: -8.6250, type: 'fixed', speed: 80 },
-            { id: 'f6', name: 'A1 - Km 188 (Coimbra Norte)', lat: 40.2450, lng: -8.4520, speed: 120, type: 'fixed' },
-            { id: 'f7', name: 'Caldas da Rainha - N8 (Santo Onofre)', lat: 39.4080, lng: -9.1320, speed: 50, type: 'fixed' },
-            { id: 'f8', name: 'Leiria - IC2 (Alto do Vieiro)', lat: 39.7280, lng: -8.8150, speed: 80, type: 'fixed' }
-        ];
+        let map, userMarker, tileLayer, radarMarkersGroup;
 
-        // Average Speed Radar Zones (RVM - Radar de Velocidade Média)
-        const AVERAGE_SPEED_ZONES = [
-            {
-                id: 'rvm1',
-                name: 'A23 - Vila Nova da Barquinha / Abrantes',
-                speed: 120,
-                type: 'rvm',
-                start: { lat: 39.4620, lng: -8.4100 },
-                end: { lat: 39.4780, lng: -8.3200 }
-            },
-            {
-                id: 'rvm2',
-                name: 'A25 - Águeda / Sever do Vouga',
-                speed: 120,
-                type: 'rvm',
-                start: { lat: 40.6610, lng: -8.4320 },
-                end: { lat: 40.6800, lng: -8.3450 }
-            },
-            {
-                id: 'rvm3',
-                name: 'A42 - Paços de Ferreira',
-                speed: 100,
-                type: 'rvm',
-                start: { lat: 41.2720, lng: -8.3810 },
-                end: { lat: 41.2850, lng: -8.3100 }
-            },
-            {
-                id: 'rvm4',
-                name: 'IC19 - Sintra / Lisboa',
-                speed: 80,
-                type: 'rvm',
-                start: { lat: 38.7610, lng: -9.2800 },
-                end: { lat: 38.7520, lng: -9.2310 }
-            }
-        ];
-
-        // Custom PSP Mobile Radars loaded from LocalStorage or defaults
-        let customPspRadars = [];
-
+        // INITIALIZE APPLICATION
         window.onload = function() {
-            initLeafletMap();
-            loadCustomPSP();
+            initMap();
             initGeolocation();
-            renderAllMapMarkers();
-            startProximityEngine();
+            initEventListeners();
+            renderWaypointsList();
+            renderRadarMarkers();
         };
 
-        function initLeafletMap() {
-            // Default center: Caldas da Rainha / Portugal center
-            map = L.map('map', { zoomControl: false }).setView([39.4035, -9.1352], 12);
+        function initMap() {
+            // Create Leaflet Map centered on default position
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView(state.userPos, 14);
 
-            tileLayer = L.tileLayer(TILE_URLS.light, {
-                maxZoom: 19,
-                attribution: '&copy; OpenStreetMap contributors, CartoDB'
+            // OpenStreetMap Tile Layer
+            tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
             }).addTo(map);
 
-            // User manual drag stops camera lock
-            map.on('dragstart', () => {
-                autoLockCamera = false;
-                document.getElementById('chk-autolock').checked = false;
-                document.getElementById('recenter-icon').className = 'fa-solid fa-crosshairs text-lg text-gray-400';
+            if (state.nightMode) {
+                document.getElementById('map').classList.add('dark-tiles');
+            }
+
+            // Radar Layer Group
+            radarMarkersGroup = L.layerGroup().addTo(map);
+
+            // Custom User Location Marker Icon
+            const userIcon = L.divIcon({
+                className: 'user-location-marker',
+                html: '<div class="user-location-pulse"></div><div class="user-location-inner"></div>',
+                iconSize: [36, 36],
+                iconAnchor: [18, 18]
             });
+
+            userMarker = L.marker(state.userPos, { icon: userIcon }).addTo(map);
         }
 
-        function toggleMapStyle() {
-            isDarkStyle = !isDarkStyle;
-            map.removeLayer(tileLayer);
-            tileLayer = L.tileLayer(isDarkStyle ? TILE_URLS.dark : TILE_URLS.light, { maxZoom: 19 }).addTo(map);
-        }
+        function renderRadarMarkers() {
+            radarMarkersGroup.clearLayers();
+            if (!state.radarAlertsEnabled) return;
 
-        function syncTollPreference(isAvoid) {
-            avoidTolls = isAvoid;
-            document.getElementById('chk-avoid-tolls').checked = isAvoid;
-            document.getElementById('chk-avoid-tolls-settings').checked = isAvoid;
-            
-            // Re-route dynamically if navigation is currently active
-            if (currentRoutePolyline) {
-                computeOSRMRoute();
-            }
-        }
-
-        // Calculate dynamic camera zoom based on vehicle speed
-        function calculateDynamicZoom(speedKmh) {
-            if (speedKmh <= 15) return 17; // Standing still / heavy traffic: close zoom
-            if (speedKmh <= 45) return 16; // City driving (30-50 km/h)
-            if (speedKmh <= 80) return 15; // Regional roads (70-80 km/h)
-            if (speedKmh <= 100) return 14; // Expressways (90-100 km/h)
-            return 13; // Highway speed (120+ km/h): wide zoom
-        }
-
-        function playAlertTone(type = 'fixed') {
-            if (!audioAlertsEnabled) return;
-            try {
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                const freq = type === 'rvm' ? 600 : 880;
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.3);
-            } catch (e) {
-                console.warn('Audio play restricted');
-            }
-        }
-
-        function toggleAudioAlerts() {
-            audioAlertsEnabled = !audioAlertsEnabled;
-            const icon = document.getElementById('audio-icon');
-            if (audioAlertsEnabled) {
-                icon.className = 'fa-solid fa-volume-high text-lg text-emerald-500';
-                playAlertTone();
-            } else {
-                icon.className = 'fa-solid fa-volume-xmark text-lg text-gray-400';
-            }
-        }
-
-        function initGeolocation() {
-            if (!navigator.geolocation) return;
-
-            watchPositionId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    const lat = pos.coords.latitude;
-                    const lng = pos.coords.longitude;
-                    const speed = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
-                    const heading = pos.coords.heading || 0;
-
-                    userCoords = { lat, lng };
-                    userHeading = heading;
-
-                    document.getElementById('speedometer-val').innerText = speed;
-
-                    // Create or update user location marker
-                    if (!userMarker) {
-                        const icon = L.divIcon({
-                            className: 'user-location-marker',
-                            html: `<div class="user-pulse"></div>
-                                   <div class="user-dot"></div>
-                                   <div class="user-heading-cone" style="transform: rotate(${heading}deg)"></div>`,
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
-                        });
-                        userMarker = L.marker([lat, lng], { icon }).addTo(map);
-                        map.setView([lat, lng], calculateDynamicZoom(speed));
-                    } else {
-                        userMarker.setLatLng([lat, lng]);
-                        const cone = document.querySelector('.user-heading-cone');
-                        if (cone) cone.style.transform = `rotate(${heading}deg)`;
-                    }
-
-                    if (autoLockCamera) {
-                        const targetZoom = calculateDynamicZoom(speed);
-                        map.setView([lat, lng], targetZoom, { animate: true });
-                    }
-
-                    checkProximity(lat, lng);
-                },
-                (err) => {
-                    document.getElementById('gps-status-text').innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span> GPS NO SIGNAL`;
-                },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-            );
-        }
-
-        function toggleFollowUser() {
-            autoLockCamera = true;
-            document.getElementById('chk-autolock').checked = true;
-            document.getElementById('recenter-icon').className = 'fa-solid fa-crosshairs text-lg text-blue-600';
-            if (userCoords) {
-                const speed = parseInt(document.getElementById('speedometer-val').innerText) || 0;
-                map.flyTo([userCoords.lat, userCoords.lng], calculateDynamicZoom(speed), { animate: true });
-            }
-        }
-
-        function renderAllMapMarkers() {
-            mapMarkers.forEach(m => map.removeLayer(m));
-            rvmPolylines.forEach(p => map.removeLayer(p));
-            mapMarkers = [];
-            rvmPolylines = [];
-
-            FIXED_RADARS.forEach(r => {
+            // Render only valid, verified speed cameras
+            state.verifiedRadars.forEach(radar => {
                 const icon = L.divIcon({
-                    html: `<div class="bg-red-600 text-white w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center text-xs font-bold">
-                             <i class="fa-solid fa-camera"></i>
-                           </div>`,
+                    className: 'radar-marker-wrapper',
+                    html: `<div class="radar-marker-icon w-7 h-7"><i class="fa-solid fa-camera"></i></div>`,
                     iconSize: [28, 28],
                     iconAnchor: [14, 14]
                 });
-                const m = L.marker([r.lat, r.lng], { icon }).addTo(map);
-                m.bindPopup(`<b class="text-xs">${r.name}</b><br><span class="text-[11px]">Fixed Speed Limit: <b>${r.speed} km/h</b></span>`);
-                mapMarkers.push(m);
+
+                const m = L.marker([radar.lat, radar.lng], { icon: icon });
+                m.bindPopup(`<b>Speed Camera</b><br>${radar.name}<br>Limit: ${radar.limit} km/h`);
+                radarMarkersGroup.addLayer(m);
             });
-
-            AVERAGE_SPEED_ZONES.forEach(rvm => {
-                const startIcon = L.divIcon({
-                    html: `<div class="bg-amber-500 text-white w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-[10px] font-bold">A</div>`,
-                    iconSize: [24, 24], iconAnchor: [12, 12]
-                });
-                const endIcon = L.divIcon({
-                    html: `<div class="bg-amber-600 text-white w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-[10px] font-bold">B</div>`,
-                    iconSize: [24, 24], iconAnchor: [12, 12]
-                });
-
-                const m1 = L.marker([rvm.start.lat, rvm.start.lng], { icon: startIcon }).addTo(map);
-                const m2 = L.marker([rvm.end.lat, rvm.end.lng], { icon: endIcon }).addTo(map);
-                
-                m1.bindPopup(`<b class="text-xs">${rvm.name} (Start)</b><br>Speed Limit: ${rvm.speed} km/h`);
-                m2.bindPopup(`<b class="text-xs">${rvm.name} (End)</b><br>Speed Limit: ${rvm.speed} km/h`);
-
-                const poly = L.polyline([[rvm.start.lat, rvm.start.lng], [rvm.end.lat, rvm.end.lng]], {
-                    color: '#f59e0b', weight: 4, dashArray: '6, 6', opacity: 0.8
-                }).addTo(map);
-
-                mapMarkers.push(m1, m2);
-                rvmPolylines.push(poly);
-            });
-
-            customPspRadars.forEach(psp => {
-                const icon = L.divIcon({
-                    html: `<div class="bg-blue-600 text-white w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center text-xs font-bold">
-                             <i class="fa-solid fa-shield"></i>
-                           </div>`,
-                    iconSize: [28, 28], iconAnchor: [14, 14]
-                });
-                const m = L.marker([psp.lat, psp.lng], { icon }).addTo(map);
-                m.bindPopup(`<b class="text-xs">PSP Spot: ${psp.location}</b><br><span class="text-[11px]">${psp.date} (${psp.startTime}-${psp.endTime})</span>`);
-                mapMarkers.push(m);
-            });
-
-            renderRadarCatalogList();
         }
 
-        function renderRadarCatalogList(filter = 'all') {
-            const container = document.getElementById('radar-items-container');
+        function initGeolocation() {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.watchPosition(
+                    (pos) => {
+                        const { latitude, longitude, speed, heading } = pos.coords;
+                        state.userPos = [latitude, longitude];
+
+                        // Update speed in chosen unit
+                        let rawSpeed = speed || 0; // m/s
+                        if (state.speedUnit === 'kmh') {
+                            state.userSpeed = Math.round(rawSpeed * 3.6);
+                        } else {
+                            state.userSpeed = Math.round(rawSpeed * 2.23694);
+                        }
+                        document.getElementById('speedValue').textContent = state.userSpeed;
+
+                        // Update Marker Position
+                        userMarker.setLatLng(state.userPos);
+
+                        if (state.isNavigating) {
+                            map.panTo(state.userPos);
+                            checkNavigationProgress();
+                        }
+                    },
+                    (err) => {
+                        console.warn("Geolocation warning/error:", err.message);
+                    },
+                    { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
+                );
+            }
+        }
+
+        function initEventListeners() {
+            // Map Zoom & Recenter Controls
+            document.getElementById('zoomInBtn').onclick = () => map.zoomIn();
+            document.getElementById('zoomOutBtn').onclick = () => map.zoomOut();
+            document.getElementById('recenterBtn').onclick = () => {
+                map.flyTo(state.userPos, 16, { animate: true });
+            };
+
+            // Waypoints Modal Toggle
+            document.getElementById('waypointsBtn').onclick = () => {
+                document.getElementById('waypointsModal').classList.remove('hidden');
+            };
+            document.getElementById('closeWaypointsBtn').onclick = () => {
+                document.getElementById('waypointsModal').classList.add('hidden');
+            };
+
+            // Waypoint addition
+            document.getElementById('addWaypointBtn').onclick = () => {
+                const input = document.getElementById('addWaypointInput');
+                const val = input.value.trim();
+                if (val) {
+                    geocodeAndAddWaypoint(val);
+                    input.value = '';
+                }
+            };
+
+            document.getElementById('clearAllWaypointsBtn').onclick = () => {
+                state.waypoints = [];
+                renderWaypointsList();
+                calculateRoute();
+            };
+
+            // Settings Modal Toggle
+            document.getElementById('settingsBtn').onclick = () => {
+                document.getElementById('settingsModal').classList.remove('hidden');
+            };
+            document.getElementById('closeSettingsBtn').onclick = () => {
+                document.getElementById('settingsModal').classList.add('hidden');
+            };
+            document.getElementById('saveSettingsBtn').onclick = () => {
+                applySettings();
+                document.getElementById('settingsModal').classList.add('hidden');
+            };
+
+            // Avoid Tolls Toggle change handler
+            document.getElementById('avoidTollsToggle').onchange = (e) => {
+                state.avoidTolls = e.target.checked;
+                calculateRoute();
+            };
+
+            // Dark Theme Toggle
+            document.getElementById('darkThemeToggle').onchange = (e) => {
+                state.nightMode = e.target.checked;
+                const mapEl = document.getElementById('map');
+                if (state.nightMode) {
+                    mapEl.classList.add('dark-tiles');
+                } else {
+                    mapEl.classList.remove('dark-tiles');
+                }
+            };
+
+            // Search Destination
+            document.getElementById('searchBtn').onclick = performSearch;
+            document.getElementById('searchInput').onkeyup = (e) => {
+                if (e.key === 'Enter') performSearch();
+            };
+
+            document.getElementById('cancelRouteBtn').onclick = cancelCurrentRoute;
+            document.getElementById('startNavBtn').onclick = startNavigation;
+        }
+
+        function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`;
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    const resultsContainer = document.getElementById('searchResults');
+                    resultsContainer.innerHTML = '';
+
+                    if (data.length === 0) {
+                        resultsContainer.innerHTML = `<div class="p-3 text-xs text-slate-400">No results found</div>`;
+                        resultsContainer.classList.remove('hidden');
+                        return;
+                    }
+
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'p-3 hover:bg-slate-800/80 cursor-pointer text-xs text-slate-200 flex items-center gap-2 transition';
+                        div.innerHTML = `<i class="fa-solid fa-location-dot text-blue-400"></i> <span class="truncate">${item.display_name}</span>`;
+                        div.onclick = () => {
+                            const lat = parseFloat(item.lat);
+                            const lon = parseFloat(item.lon);
+                            
+                            // Set primary destination as last waypoint or set route
+                            setDestination([lat, lon], item.display_name);
+                            resultsContainer.classList.add('hidden');
+                        };
+                        resultsContainer.appendChild(div);
+                    });
+
+                    resultsContainer.classList.remove('hidden');
+                })
+                .catch(err => console.error("Geocoding error:", err));
+        }
+
+        function setDestination(coords, label) {
+            // Replace existing destination or add as main end route
+            if (state.waypoints.length === 0) {
+                state.waypoints.push({ latLng: L.latLng(coords[0], coords[1]), label: label || 'Destination' });
+            } else {
+                state.waypoints[state.waypoints.length - 1] = { latLng: L.latLng(coords[0], coords[1]), label: label || 'Destination' };
+            }
+            renderWaypointsList();
+            calculateRoute();
+        }
+
+        function geocodeAndAddWaypoint(query) {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        const item = data[0];
+                        const latLng = L.latLng(parseFloat(item.lat), parseFloat(item.lon));
+                        state.waypoints.push({ latLng, label: item.display_name });
+                        renderWaypointsList();
+                        calculateRoute();
+                    }
+                });
+        }
+
+        function renderWaypointsList() {
+            const container = document.getElementById('waypointsList');
+            const badge = document.getElementById('waypointBadge');
             container.innerHTML = '';
 
-            let list = [];
-            if (filter === 'all' || filter === 'fixed') {
-                FIXED_RADARS.forEach(r => list.push({ name: r.name, detail: `Fixed • ${r.speed} km/h`, lat: r.lat, lng: r.lng, icon: 'fa-camera text-red-500' }));
-            }
-            if (filter === 'all' || filter === 'rvm') {
-                AVERAGE_SPEED_ZONES.forEach(r => list.push({ name: r.name, detail: `Avg Speed Zone • ${r.speed} km/h`, lat: r.start.lat, lng: r.start.lng, icon: 'fa-road text-amber-500' }));
-            }
-            if (filter === 'all' || filter === 'psp') {
-                customPspRadars.forEach(r => list.push({ name: r.location, detail: `PSP Mobile • ${r.date}`, lat: r.lat, lng: r.lng, icon: 'fa-shield text-blue-500' }));
-            }
-
-            document.getElementById('active-radars-count').innerText = `${list.length} Radars loaded`;
-
-            list.forEach(item => {
-                const div = document.createElement('div');
-                div.className = 'p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer';
-                div.onclick = () => {
-                    map.flyTo([item.lat, item.lng], 15);
-                    togglePanel('radar-list-sheet');
-                };
-                div.innerHTML = `
-                    <div class="flex items-center gap-2.5">
-                        <i class="fa-solid ${item.icon} text-base"></i>
-                        <div>
-                            <span class="text-xs font-bold text-gray-800 dark:text-white block">${item.name}</span>
-                            <span class="text-[10px] text-gray-400">${item.detail}</span>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-angle-right text-xs text-gray-400"></i>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        function filterRadarCategory(cat) {
-            ['all', 'fixed', 'rvm', 'psp'].forEach(c => {
-                const btn = document.getElementById(`filter-cat-${c}`);
-                if (c === cat) {
-                    btn.className = 'flex-1 py-1 text-xs font-semibold rounded-xl bg-blue-600 text-white';
-                } else {
-                    btn.className = 'flex-1 py-1 text-xs font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300';
-                }
-            });
-            renderRadarCatalogList(cat);
-        }
-
-        async function handleSavePSP(e) {
-            e.preventDefault();
-            const locStr = document.getElementById('psp-location').value;
-            const date = document.getElementById('psp-date').value;
-            const sTime = document.getElementById('psp-start').value;
-            const eTime = document.getElementById('psp-end').value;
-            const speed = document.getElementById('psp-speed').value;
-
-            const btn = document.getElementById('btn-save-psp');
-            btn.disabled = true;
-            btn.innerText = "Geocoding address...";
-
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locStr + ', Portugal')}&limit=1`);
-                const data = await res.json();
-
-                if (!data || data.length === 0) {
-                    alert("Address not found in Portugal. Please be more specific.");
-                    return;
-                }
-
-                const newSpot = {
-                    id: Date.now().toString(),
-                    location: locStr,
-                    lat: parseFloat(data[0].lat),
-                    lng: parseFloat(data[0].lon),
-                    date,
-                    startTime: sTime,
-                    endTime: eTime,
-                    speed: speed || 50
-                };
-
-                customPspRadars.unshift(newSpot);
-                localStorage.setItem('custom_psp_radars', JSON.stringify(customPspRadars));
-                renderAllMapMarkers();
-                togglePanel('add-psp-sheet');
-                document.getElementById('psp-form').reset();
-            } catch (err) {
-                alert("Network error geocoding spot");
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = `<i class="fa-solid fa-map-pin mr-1"></i> Geocode & Pin Location`;
-            }
-        }
-
-        function loadCustomPSP() {
-            const saved = localStorage.getItem('custom_psp_radars');
-            if (saved) {
-                try { customPspRadars = JSON.parse(saved); } catch(e){}
-            }
-        }
-
-        function getDistanceMeters(lat1, lon1, lat2, lon2) {
-            const R = 6371e3;
-            const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        function checkProximity(uLat, uLng) {
-            let closestDist = Infinity;
-            let closestRadar = null;
-
-            FIXED_RADARS.forEach(r => {
-                const d = getDistanceMeters(uLat, uLng, r.lat, r.lng);
-                if (d < closestDist) { closestDist = d; closestRadar = r; }
-            });
-
-            AVERAGE_SPEED_ZONES.forEach(rvm => {
-                const d = getDistanceMeters(uLat, uLng, rvm.start.lat, rvm.start.lng);
-                if (d < closestDist) { closestDist = d; closestRadar = { name: rvm.name, speed: rvm.speed, type: 'rvm' }; }
-            });
-
-            const alertBox = document.getElementById('proximity-alert-box');
-
-            if (closestRadar && closestDist <= 800) {
-                alertBox.classList.remove('hidden');
-                document.getElementById('alert-radar-type').innerText = closestRadar.type === 'rvm' ? 'AVG SPEED ZONE AHEAD' : 'FIXED RADAR AHEAD';
-                document.getElementById('alert-radar-location').innerText = closestRadar.name;
-                document.getElementById('alert-radar-distance').innerText = `${Math.round(closestDist)} m`;
-                document.getElementById('alert-radar-limit').innerText = `${closestRadar.speed} KM/H`;
-
-                playAlertTone(closestRadar.type);
-            } else {
-                alertBox.classList.add('hidden');
-            }
-        }
-
-        function startProximityEngine() {
-            setInterval(() => {
-                if (userCoords) checkProximity(userCoords.lat, userCoords.lng);
-            }, 4000);
-        }
-
-        async function computeOSRMRoute() {
-            const startStr = document.getElementById('route-start-input').value;
-            const endStr = document.getElementById('route-end-input').value;
-
-            if (!endStr) return;
-
-            let orig = userCoords;
-            if (startStr && startStr !== 'Current GPS') {
-                orig = await geocodeString(startStr);
-            }
-            const dest = await geocodeString(endStr);
-
-            if (!orig || !dest) {
-                alert("Could not geocode origin or destination");
+            if (state.waypoints.length === 0) {
+                container.innerHTML = `<div class="text-center py-6 text-slate-500 text-xs">No waypoints added yet.<br>Add stops along your route.</div>`;
+                badge.classList.add('hidden');
                 return;
             }
 
-            try {
-                // Attach exclude=toll query parameter when Avoid Tolls is enabled
-                let apiUrl = `https://router.project-osrm.org/route/v1/driving/${orig.lng},${orig.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`;
-                if (avoidTolls) {
-                    apiUrl += `&exclude=toll`;
-                }
+            badge.textContent = state.waypoints.length;
+            badge.classList.remove('hidden');
 
-                const res = await fetch(apiUrl);
-                const data = await res.json();
-
-                if (!data.routes || data.routes.length === 0) {
-                    alert("No route found matching criteria.");
-                    return;
-                }
-
-                const route = data.routes[0];
-                const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
-
-                if (currentRoutePolyline) map.removeLayer(currentRoutePolyline);
+            state.waypoints.forEach((wp, index) => {
+                const item = document.createElement('div');
+                item.className = 'flex items-center justify-between bg-slate-800/60 p-3 rounded-2xl border border-slate-700/50 gap-2';
                 
-                // Polyline style (amber line if avoiding tolls)
-                const polyColor = avoidTolls ? '#f59e0b' : '#1a73e8';
-                currentRoutePolyline = L.polyline(coords, { color: polyColor, weight: 6, opacity: 0.9 }).addTo(map);
-                map.fitBounds(currentRoutePolyline.getBounds(), { padding: [40, 40] });
+                const isFirst = index === 0 && state.waypoints.length > 1;
+                const isLast = index === state.waypoints.length - 1;
+                let tag = isLast ? 'Destination' : `Stop #${index + 1}`;
 
-                const distKm = (route.distance / 1000).toFixed(1);
-                const durationMin = Math.round(route.duration / 60);
-
-                document.getElementById('nav-banner').classList.remove('hidden');
-                document.getElementById('nav-route-stats').innerText = `${distKm} km • ${durationMin} min${avoidTolls ? ' (No Tolls)' : ''}`;
-
-                togglePanel('route-sheet');
-            } catch (err) {
-                alert("Error deriving OSRM route");
-            }
-        }
-
-        async function geocodeString(str) {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(str + ', Portugal')}&limit=1`);
-            const data = await res.json();
-            if (data && data.length > 0) {
-                return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-            }
-            return null;
-        }
-
-        function setOriginToCurrentGPS() {
-            document.getElementById('route-start-input').value = 'Current GPS';
-        }
-
-        function searchAndRoute() {
-            const input = document.getElementById('destination-input').value;
-            if (input) {
-                document.getElementById('route-end-input').value = input;
-                togglePanel('route-sheet');
-            }
-        }
-
-        function stopNavigation() {
-            if (currentRoutePolyline) map.removeLayer(currentRoutePolyline);
-            document.getElementById('nav-banner').classList.add('hidden');
-        }
-
-        function clearCurrentRoute() {
-            stopNavigation();
-            document.getElementById('route-start-input').value = '';
-            document.getElementById('route-end-input').value = '';
-        }
-
-        function togglePanel(panelId) {
-            const panels = ['radar-list-sheet', 'add-psp-sheet', 'route-sheet', 'rvm-sheet', 'menu-drawer'];
-            panels.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) {
-                    if (id === panelId) el.classList.toggle('hidden');
-                    else el.classList.add('hidden');
-                }
+                item.innerHTML = `
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <span class="w-6 h-6 rounded-full bg-blue-600/30 text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                            ${index + 1}
+                        </span>
+                        <div class="overflow-hidden">
+                            <div class="text-[10px] text-blue-400 uppercase font-bold tracking-wider">${tag}</div>
+                            <div class="text-xs text-slate-200 truncate font-medium">${wp.label}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        ${index > 0 ? `<button onclick="moveWaypoint(${index}, -1)" class="p-1.5 text-slate-400 hover:text-white"><i class="fa-solid fa-arrow-up text-xs"></i></button>` : ''}
+                        ${index < state.waypoints.length - 1 ? `<button onclick="moveWaypoint(${index}, 1)" class="p-1.5 text-slate-400 hover:text-white"><i class="fa-solid fa-arrow-down text-xs"></i></button>` : ''}
+                        <button onclick="removeWaypoint(${index})" class="p-1.5 text-slate-400 hover:text-red-400"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                    </div>
+                `;
+                container.appendChild(item);
             });
         }
 
-        function exportCustomData() {
-            const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(customPspRadars));
-            const a = document.createElement('a');
-            a.href = str; a.download = 'psp_radars.json'; a.click();
+        window.removeWaypoint = function(idx) {
+            state.waypoints.splice(idx, 1);
+            renderWaypointsList();
+            calculateRoute();
+        };
+
+        window.moveWaypoint = function(idx, direction) {
+            const targetIdx = idx + direction;
+            if (targetIdx >= 0 && targetIdx < state.waypoints.length) {
+                const temp = state.waypoints[idx];
+                state.waypoints[idx] = state.waypoints[targetIdx];
+                state.waypoints[targetIdx] = temp;
+                renderWaypointsList();
+                calculateRoute();
+            }
+        };
+
+        function calculateRoute() {
+            if (state.waypoints.length === 0) {
+                if (state.activeRouteControl) {
+                    map.removeControl(state.activeRouteControl);
+                    state.activeRouteControl = null;
+                }
+                document.getElementById('routeSummaryDock').classList.add('hidden');
+                document.getElementById('turnBanner').classList.add('hidden');
+                return;
+            }
+
+            // Clean previous route calculation
+            if (state.activeRouteControl) {
+                map.removeControl(state.activeRouteControl);
+            }
+
+            // Build route waypoints starting from current user position
+            const routeWaypoints = [
+                L.latLng(state.userPos[0], state.userPos[1]),
+                ...state.waypoints.map(w => w.latLng)
+            ];
+
+            // Configure OSRM Router options including Toll avoidance parameter
+            const routerOptions = {
+                serviceUrl: 'https://router.project-osrm.org/route/v1',
+                profile: 'driving'
+            };
+
+            // Integrate Avoid Tolls parameter if requested
+            if (state.avoidTolls) {
+                // Pass OSRM exclude parameter for toll roads
+                routerOptions.requestParameters = { exclude: 'toll' };
+            }
+
+            state.activeRouteControl = L.Routing.control({
+                waypoints: routeWaypoints,
+                router: L.Routing.osrmv1(routerOptions),
+                lineOptions: {
+                    styles: [{ color: '#3b82f6', opacity: 0.8, weight: 6 }]
+                },
+                createMarker: function(i, wp, n) {
+                    if (i === 0) return null; // Current position handled by userMarker
+                    return L.marker(wp.latLng, {
+                        icon: L.divIcon({
+                            className: 'custom-wp-pin',
+                            html: `<div class="bg-blue-600 text-white font-bold w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-xs shadow-lg">${i}</div>`,
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12]
+                        })
+                    });
+                },
+                addWaypoints: false,
+                fitSelectedRoutes: true
+            }).addTo(map);
+
+            state.activeRouteControl.on('routesfound', function(e) {
+                const routes = e.routes;
+                const summary = routes[0].summary;
+                
+                // Update Route HUD Summary
+                const distKm = (summary.totalDistance / 1000).toFixed(1);
+                const timeMin = Math.round(summary.totalTime / 60);
+
+                document.getElementById('routeDistance').textContent = `${distKm} km`;
+                document.getElementById('routeEta').textContent = `${timeMin} min`;
+                document.getElementById('routeSummaryDock').classList.remove('hidden');
+
+                // Extract Instructions for navigation
+                state.routeInstructions = routes[0].instructions || [];
+                state.currentInstructionIndex = 0;
+                updateTurnBanner();
+            });
         }
 
-        function importCustomData(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const r = new FileReader();
-            r.onload = (evt) => {
-                try {
-                    customPspRadars = JSON.parse(evt.target.result);
-                    localStorage.setItem('custom_psp_radars', JSON.stringify(customPspRadars));
-                    renderAllMapMarkers();
-                } catch(err){}
-            };
-            r.readAsText(file);
+        function updateTurnBanner() {
+            if (state.routeInstructions.length === 0) return;
+
+            const current = state.routeInstructions[state.currentInstructionIndex];
+            if (!current) return;
+
+            document.getElementById('turnDistance').textContent = `In ${Math.round(current.distance)} m`;
+            document.getElementById('turnInstruction').textContent = current.text || "Continue along route";
+            document.getElementById('turnBanner').classList.remove('hidden');
+        }
+
+        function startNavigation() {
+            state.isNavigating = true;
+            document.getElementById('routeSummaryDock').classList.add('hidden');
+            map.flyTo(state.userPos, 17, { animate: true });
+        }
+
+        function cancelCurrentRoute() {
+            state.isNavigating = false;
+            state.waypoints = [];
+            renderWaypointsList();
+            if (state.activeRouteControl) {
+                map.removeControl(state.activeRouteControl);
+                state.activeRouteControl = null;
+            }
+            document.getElementById('routeSummaryDock').classList.add('hidden');
+            document.getElementById('turnBanner').classList.add('hidden');
+        }
+
+        function checkNavigationProgress() {
+            // Simplified turn update check based on proximity
+            if (state.routeInstructions.length > 0 && state.currentInstructionIndex < state.routeInstructions.length - 1) {
+                const current = state.routeInstructions[state.currentInstructionIndex];
+                if (current.distance < 20) {
+                    state.currentInstructionIndex++;
+                    updateTurnBanner();
+                }
+            }
+        }
+
+        function applySettings() {
+            state.speedUnit = document.getElementById('speedUnitSelect').value;
+            document.getElementById('speedUnit').textContent = state.speedUnit === 'kmh' ? 'km/h' : 'mph';
+            state.radarAlertsEnabled = document.getElementById('radarAlertToggle').checked;
+            renderRadarMarkers();
         }
     </script>
 </body>
