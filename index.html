@@ -38,6 +38,9 @@
     <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Leaflet rotate plugin (lets the map turn to your heading) -->
+    <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
     
     <!-- Leaflet Routing Machine CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
@@ -505,6 +508,18 @@
                     </label>
                 </div>
 
+                <!-- Rotate map to heading Toggle -->
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <div class="font-medium text-white text-sm" data-i18n="rotateMap">Rotate Map to My Heading</div>
+                        <div class="text-xs text-slate-400" data-i18n="rotateMapDesc">While navigating, the map turns so the direction you are travelling is always up</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="checkbox" id="rotateMapToggle" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
                 <!-- Voice Navigation Toggle -->
                 <div class="flex items-center justify-between">
                     <div>
@@ -608,6 +623,7 @@
                 keyDesc: 'Stored only on this device. Needed to display the map.',
                 keyMissing: 'Enter your CARTO API key to display the map.',
                 keyError: 'The map tiles could not be loaded. Check that your CARTO API key is correct.',
+                rotateMap: 'Rotate Map to My Heading', rotateMapDesc: 'While navigating, the map turns so the direction you are travelling is always up',
                 // dynamic
                 pspRadar: 'PSP Radar', limit: 'Limit', schedule: 'Schedule',
                 status_active: 'active', status_upcoming: 'upcoming', status_expired: 'expired',
@@ -645,6 +661,7 @@
                 keyDesc: 'Guardada apenas neste dispositivo. Necessária para mostrar o mapa.',
                 keyMissing: 'Introduza a sua chave de API do CARTO para mostrar o mapa.',
                 keyError: 'Não foi possível carregar o mapa. Verifique se a chave de API do CARTO está correta.',
+                rotateMap: 'Rodar o mapa conforme a direção', rotateMapDesc: 'Durante a navegação, o mapa roda para que a direção em que segue fique sempre para cima',
                 pspRadar: 'Radar PSP', limit: 'Limite', schedule: 'Horário',
                 status_active: 'ativo', status_upcoming: 'próximo', status_expired: 'expirado',
                 noRadars: "Nenhum radar PSP agendado.<br>Clique em 'Adicionar radar' para inserir os locais publicados mensalmente.",
@@ -678,6 +695,12 @@
             try { if (k) localStorage.setItem('cartoApiKey', k); else localStorage.removeItem('cartoApiKey'); } catch (e) {}
         }
         let cartoApiKey = loadCartoKey();
+
+        // Heading-up map rotation preference (on by default)
+        function loadRotatePref() {
+            try { return localStorage.getItem('rotateMap') !== '0'; } catch (e) { return true; }
+        }
+        let rotateMapEnabled = loadRotatePref();
         let tileOk = 0, tileErr = 0, keyProblem = false;
 
         function t(key, vars) {
@@ -846,7 +869,13 @@
         function initMap() {
             map = L.map('map', {
                 zoomControl: false,
-                attributionControl: true
+                attributionControl: true,
+                // leaflet-rotate: rotation is driven by the app (heading-up while navigating)
+                rotate: true,
+                bearing: 0,
+                touchRotate: false,
+                shiftKeyRotate: false,
+                rotateControl: false
             }).setView(state.userPos, 14);
 
             // CARTO Basemaps raster tiles.
@@ -1115,10 +1144,12 @@
             updatePspRadarsMapAndUI();
         };
 
-        // ---------- Direction arrow while moving ----------
+        // ---------- Direction arrow while moving + heading-up map rotation ----------
         let arrowAngle = 0;
-        let lastHeading = null;
+        let lastHeading = null;       // last known direction of travel (degrees, 0 = north)
         let lastMoveTime = 0;
+        let rotationHeading = null;   // heading used to rotate the map (only updated at a steadier speed)
+        let bearingAnim = null;
 
         function getBearing(lat1, lon1, lat2, lon2) {
             const r = Math.PI / 180;
@@ -1128,11 +1159,59 @@
             return (Math.atan2(y, x) / r + 360) % 360;
         }
 
+        function mapRotationSupported() {
+            return map && typeof map.setBearing === 'function' && typeof map.getBearing === 'function';
+        }
+
         function refreshArrowVisibility() {
             const el = userMarker && userMarker.getElement();
             if (!el) return;
             // arrow while moving; back to the dot after ~8 s standing still
             el.classList.toggle('moving', lastHeading !== null && (Date.now() - lastMoveTime) < 8000);
+        }
+
+        // The arrow points to the real direction of travel on screen:
+        // on screen angle = compass heading + current map rotation (so it points up when the map is heading-up)
+        function renderArrow() {
+            const el = userMarker && userMarker.getElement();
+            if (!el || lastHeading === null) return;
+            const arrow = el.querySelector('.user-location-arrow');
+            if (!arrow) return;
+
+            const mapBearing = mapRotationSupported() ? map.getBearing() : 0;
+            const rotated = mapBearing > 0.5 && mapBearing < 359.5;
+            const target = lastHeading + mapBearing;
+            const delta = ((target - arrowAngle + 540) % 360) - 180;   // shortest way round
+            arrowAngle += delta;
+            arrow.style.transition = rotated ? 'none' : '';
+            arrow.style.transform = `rotate(${arrowAngle}deg)`;
+        }
+
+        function setMapBearingSmooth(target) {
+            if (!mapRotationSupported()) return;
+            const cur = map.getBearing();
+            const delta = ((target - cur + 540) % 360) - 180;
+            if (Math.abs(delta) < 1.5) return;                          // ignore GPS jitter
+            if (bearingAnim) cancelAnimationFrame(bearingAnim);
+
+            const t0 = performance.now();
+            const duration = 450;
+            const step = (now) => {
+                const k = Math.min(1, (now - t0) / duration);
+                const eased = 1 - Math.pow(1 - k, 3);
+                map.setBearing(cur + delta * eased);
+                renderArrow();
+                bearingAnim = k < 1 ? requestAnimationFrame(step) : null;
+            };
+            bearingAnim = requestAnimationFrame(step);
+        }
+
+        // Heading-up while navigating (if enabled); north-up otherwise
+        function updateMapRotation() {
+            if (!mapRotationSupported()) return;
+            const want = rotateMapEnabled && state.isNavigating && rotationHeading !== null;
+            // leaflet-rotate bearing is a clockwise CSS rotation, so heading-up = 360 - heading
+            setMapBearingSmooth(want ? (360 - rotationHeading) % 360 : 0);
         }
 
         function updateUserHeading(coords, prev) {
@@ -1141,7 +1220,8 @@
 
             const dist = getDistanceMeters(prev[0], prev[1], coords.latitude, coords.longitude);
             const hasSpeed = typeof coords.speed === 'number' && !isNaN(coords.speed);
-            const moving = hasSpeed ? coords.speed >= 1.5 : dist >= 8;      // 1.5 m/s is about 5 km/h
+            const moving = hasSpeed ? coords.speed >= 1.5 : dist >= 8;          // 1.5 m/s is about 5 km/h
+            const steady = hasSpeed ? coords.speed >= 3 : dist >= 12;           // 3 m/s is about 11 km/h
 
             if (moving) {
                 let heading = (typeof coords.heading === 'number' && !isNaN(coords.heading)) ? coords.heading : null;
@@ -1151,11 +1231,8 @@
                 if (heading !== null) {
                     lastHeading = heading;
                     lastMoveTime = Date.now();
-                    // rotate the short way round (avoid a spin from 359 to 0)
-                    const delta = ((heading - arrowAngle + 540) % 360) - 180;
-                    arrowAngle += delta;
-                    const arrow = el.querySelector('.user-location-arrow');
-                    if (arrow) arrow.style.transform = `rotate(${arrowAngle}deg)`;
+                    if (steady) rotationHeading = heading;
+                    renderArrow();
                 }
             }
             refreshArrowVisibility();
@@ -1175,6 +1252,7 @@
 
                         userMarker.setLatLng(state.userPos);
                         updateUserHeading(pos.coords, prevPos);
+                        updateMapRotation();
 
                         if (state.isNavigating) {
                             map.panTo(state.userPos);
@@ -1318,6 +1396,14 @@
             document.getElementById('cartoKeySaveBtn').onclick = applyCartoKeyFromInput;
             document.getElementById('cartoKeyInput').onkeyup = (e) => { if (e.key === 'Enter') applyCartoKeyFromInput(); };
 
+            // Rotate map to heading toggle
+            document.getElementById('rotateMapToggle').checked = rotateMapEnabled;
+            document.getElementById('rotateMapToggle').onchange = (e) => {
+                rotateMapEnabled = e.target.checked;
+                try { localStorage.setItem('rotateMap', rotateMapEnabled ? '1' : '0'); } catch (err) {}
+                updateMapRotation();
+            };
+
             // Language Switcher (English / Português de Portugal)
             document.getElementById('languageSelect').onchange = (e) => {
                 currentLang = e.target.value === 'pt' ? 'pt' : 'en';
@@ -1348,6 +1434,8 @@
             document.getElementById('cancelRouteBtn').onclick = cancelCurrentRoute;
             document.getElementById('startNavBtn').onclick = () => {
                 state.isNavigating = true;
+                rotationHeading = null;   // wait for fresh movement before turning the map
+                requestWakeLock();
                 document.getElementById('routeSummaryDock').classList.add('hidden');
                 map.flyTo(state.userPos, 17);
                 speakVoice(t('voiceStart'));
@@ -1600,8 +1688,33 @@
             });
         }
 
+        // ---------- Keep the screen on while navigating (Screen Wake Lock) ----------
+        let wakeLock = null;
+
+        async function requestWakeLock() {
+            try {
+                if (!('wakeLock' in navigator) || wakeLock) return;
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => { wakeLock = null; });
+            } catch (e) {
+                console.warn('Wake lock unavailable:', e && e.message);
+            }
+        }
+
+        async function releaseWakeLock() {
+            try { if (wakeLock) await wakeLock.release(); } catch (e) {}
+            wakeLock = null;
+        }
+
+        // The browser drops the lock when the page is hidden; take it again when the user comes back
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && state.isNavigating) requestWakeLock();
+        });
+
         function cancelCurrentRoute() {
             state.isNavigating = false;
+            releaseWakeLock();
+            updateMapRotation();      // back to north-up
             state.waypoints = [];
             renderWaypointsList();
             if (state.activeRouteControl) {
