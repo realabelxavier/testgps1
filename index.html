@@ -100,6 +100,21 @@
             border-radius: 50%;
             box-shadow: 0 0 15px #3b82f6;
         }
+        /* Speedometer sits just above the bottom button bar; lifts up when the route summary card is showing */
+        #speedHud { bottom: 6.25rem; }
+        body:has(#routeSummaryDock:not(.hidden)) #speedHud { bottom: 11.75rem; }
+
+        /* Direction arrow: replaces the dot while the user is moving */
+        .user-location-arrow {
+            display: none;
+            width: 36px;
+            height: 36px;
+            transition: transform 0.3s linear;
+            filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.9));
+        }
+        .user-location-marker.moving .user-location-inner { display: none; }
+        .user-location-marker.moving .user-location-arrow { display: block; }
+
         .user-location-pulse {
             position: absolute;
             width: 36px;
@@ -209,10 +224,10 @@
     </div>
 
     <!-- HUD SPEEDOMETER -->
-    <div class="absolute top-20 right-3 z-20 flex flex-col gap-2 items-end">
-        <div class="glass-panel rounded-2xl p-3 shadow-xl flex flex-col items-center justify-center min-w-[75px]">
-            <span id="speedValue" class="text-3xl font-extrabold tracking-tight text-emerald-400">0</span>
-            <span id="speedUnit" class="text-[10px] font-bold uppercase tracking-wider text-slate-400">km/h</span>
+    <div id="speedHud" class="absolute left-3 z-20 flex flex-col gap-2 items-start">
+        <div class="glass-panel rounded-xl px-2.5 py-1.5 shadow-xl flex flex-col items-center justify-center min-w-[52px]">
+            <span id="speedValue" class="text-2xl leading-none font-extrabold tracking-tight text-emerald-400">0</span>
+            <span id="speedUnit" class="text-[9px] font-bold uppercase tracking-wider text-slate-400 mt-0.5">km/h</span>
         </div>
     </div>
 
@@ -744,6 +759,8 @@
             setInterval(() => {
                 updatePspRadarsMapAndUI();
             }, 30000);
+
+            setInterval(refreshArrowVisibility, 2000);
         };
 
         function loadPspRadarsFromStorage() {
@@ -839,7 +856,8 @@
 
             const userIcon = L.divIcon({
                 className: 'user-location-marker',
-                html: '<div class="user-location-pulse"></div><div class="user-location-inner"></div>',
+                html: '<div class="user-location-pulse"></div><div class="user-location-inner"></div>' +
+                      '<div class="user-location-arrow"><svg viewBox="0 0 36 36" width="36" height="36"><path d="M18 3 L29 31 L18 24 L7 31 Z" fill="#3b82f6" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/></svg></div>',
                 iconSize: [36, 36],
                 iconAnchor: [18, 18]
             });
@@ -1097,11 +1115,58 @@
             updatePspRadarsMapAndUI();
         };
 
+        // ---------- Direction arrow while moving ----------
+        let arrowAngle = 0;
+        let lastHeading = null;
+        let lastMoveTime = 0;
+
+        function getBearing(lat1, lon1, lat2, lon2) {
+            const r = Math.PI / 180;
+            const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+            const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) -
+                      Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+            return (Math.atan2(y, x) / r + 360) % 360;
+        }
+
+        function refreshArrowVisibility() {
+            const el = userMarker && userMarker.getElement();
+            if (!el) return;
+            // arrow while moving; back to the dot after ~8 s standing still
+            el.classList.toggle('moving', lastHeading !== null && (Date.now() - lastMoveTime) < 8000);
+        }
+
+        function updateUserHeading(coords, prev) {
+            const el = userMarker && userMarker.getElement();
+            if (!el) return;
+
+            const dist = getDistanceMeters(prev[0], prev[1], coords.latitude, coords.longitude);
+            const hasSpeed = typeof coords.speed === 'number' && !isNaN(coords.speed);
+            const moving = hasSpeed ? coords.speed >= 1.5 : dist >= 8;      // 1.5 m/s is about 5 km/h
+
+            if (moving) {
+                let heading = (typeof coords.heading === 'number' && !isNaN(coords.heading)) ? coords.heading : null;
+                if (heading === null && dist >= 5) {
+                    heading = getBearing(prev[0], prev[1], coords.latitude, coords.longitude);
+                }
+                if (heading !== null) {
+                    lastHeading = heading;
+                    lastMoveTime = Date.now();
+                    // rotate the short way round (avoid a spin from 359 to 0)
+                    const delta = ((heading - arrowAngle + 540) % 360) - 180;
+                    arrowAngle += delta;
+                    const arrow = el.querySelector('.user-location-arrow');
+                    if (arrow) arrow.style.transform = `rotate(${arrowAngle}deg)`;
+                }
+            }
+            refreshArrowVisibility();
+        }
+
         function initGeolocation() {
             if ('geolocation' in navigator) {
                 navigator.geolocation.watchPosition(
                     (pos) => {
                         const { latitude, longitude, speed } = pos.coords;
+                        const prevPos = state.userPos;
                         state.userPos = [latitude, longitude];
 
                         let rawSpeed = speed || 0;
@@ -1109,6 +1174,7 @@
                         document.getElementById('speedValue').textContent = state.userSpeed;
 
                         userMarker.setLatLng(state.userPos);
+                        updateUserHeading(pos.coords, prevPos);
 
                         if (state.isNavigating) {
                             map.panTo(state.userPos);
