@@ -873,7 +873,7 @@
                 // leaflet-rotate: rotation is driven by the app (heading-up while navigating)
                 rotate: true,
                 bearing: 0,
-                touchRotate: false,
+                touchRotate: true,      // pinch/twist with two fingers to rotate, like Maps / Waze
                 shiftKeyRotate: false,
                 rotateControl: false
             }).setView(state.userPos, 14);
@@ -1150,6 +1150,8 @@
         let lastMoveTime = 0;
         let rotationHeading = null;   // heading used to rotate the map (only updated at a steadier speed)
         let bearingAnim = null;
+        let autoRotating = false;     // true only while the app itself is turning the map
+        let manualRotateUntil = 0;    // auto heading-up is paused until this time after the user rotates by hand
 
         function getBearing(lat1, lon1, lat2, lon2) {
             const r = Math.PI / 180;
@@ -1166,8 +1168,8 @@
         function refreshArrowVisibility() {
             const el = userMarker && userMarker.getElement();
             if (!el) return;
-            // arrow while moving; back to the dot after ~8 s standing still
-            el.classList.toggle('moving', lastHeading !== null && (Date.now() - lastMoveTime) < 8000);
+            // arrow while moving or navigating; otherwise back to the dot after ~8 s standing still
+            el.classList.toggle('moving', lastHeading !== null && (state.isNavigating || (Date.now() - lastMoveTime) < 8000));
         }
 
         // The arrow points to the real direction of travel on screen:
@@ -1199,7 +1201,9 @@
             const step = (now) => {
                 const k = Math.min(1, (now - t0) / duration);
                 const eased = 1 - Math.pow(1 - k, 3);
+                autoRotating = true;
                 map.setBearing(cur + delta * eased);
+                autoRotating = false;
                 renderArrow();
                 bearingAnim = k < 1 ? requestAnimationFrame(step) : null;
             };
@@ -1207,11 +1211,20 @@
         }
 
         // Heading-up while navigating (if enabled); north-up otherwise
-        function updateMapRotation() {
+        function updateMapRotation(force) {
             if (!mapRotationSupported()) return;
+            if (!force && Date.now() < manualRotateUntil) return;       // user is rotating by hand
             const want = rotateMapEnabled && state.isNavigating && rotationHeading !== null;
             // leaflet-rotate bearing is a clockwise CSS rotation, so heading-up = 360 - heading
             setMapBearingSmooth(want ? (360 - rotationHeading) % 360 : 0);
+        }
+
+        // The user turned the map by hand (two-finger twist): pause auto heading-up for a while
+        function onMapRotate() {
+            if (autoRotating) return;
+            if (bearingAnim) { cancelAnimationFrame(bearingAnim); bearingAnim = null; }
+            manualRotateUntil = Date.now() + 15000;
+            renderArrow();
         }
 
         function updateUserHeading(coords, prev) {
@@ -1270,7 +1283,20 @@
             // Map Zoom & Recenter
             document.getElementById('zoomInBtn').onclick = () => map.zoomIn();
             document.getElementById('zoomOutBtn').onclick = () => map.zoomOut();
-            document.getElementById('recenterBtn').onclick = () => map.flyTo(state.userPos, 16);
+            if (mapRotationSupported()) map.on('rotate', onMapRotate);
+
+            document.getElementById('recenterBtn').onclick = () => {
+                manualRotateUntil = 0;
+                if (state.isNavigating) {
+                    updateMapRotation(true);                     // resume heading-up
+                    map.flyTo(state.userPos, 16);
+                } else if (mapRotationSupported() && Math.abs(((map.getBearing() + 180) % 360) - 180) > 1.5) {
+                    setMapBearingSmooth(0);                      // not navigating: back to north-up first, then recenter
+                    setTimeout(() => map.flyTo(state.userPos, 16), 500);
+                } else {
+                    map.flyTo(state.userPos, 16);
+                }
+            };
 
             // PSP Radar Modal & Add form handlers
             document.getElementById('pspRadarsBtn').onclick = () => {
@@ -1401,7 +1427,7 @@
             document.getElementById('rotateMapToggle').onchange = (e) => {
                 rotateMapEnabled = e.target.checked;
                 try { localStorage.setItem('rotateMap', rotateMapEnabled ? '1' : '0'); } catch (err) {}
-                updateMapRotation();
+                updateMapRotation(true);
             };
 
             // Language Switcher (English / Português de Portugal)
@@ -1435,6 +1461,7 @@
             document.getElementById('startNavBtn').onclick = () => {
                 state.isNavigating = true;
                 rotationHeading = null;   // wait for fresh movement before turning the map
+                manualRotateUntil = 0;
                 requestWakeLock();
                 document.getElementById('routeSummaryDock').classList.add('hidden');
                 map.flyTo(state.userPos, 17);
@@ -1714,7 +1741,7 @@
         function cancelCurrentRoute() {
             state.isNavigating = false;
             releaseWakeLock();
-            updateMapRotation();      // back to north-up
+            updateMapRotation(true);  // back to north-up
             state.waypoints = [];
             renderWaypointsList();
             if (state.activeRouteControl) {
