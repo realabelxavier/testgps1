@@ -296,6 +296,15 @@
                 <input type="text" id="route-end-input" placeholder="Destination address or city" class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white">
             </div>
 
+            <!-- Avoid Toll Roads Checkbox -->
+            <div class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-coins text-amber-500 text-xs"></i>
+                    <span class="text-xs font-bold text-gray-800 dark:text-white">Avoid Toll Roads</span>
+                </div>
+                <input type="checkbox" id="chk-avoid-tolls" onchange="syncTollPreference(this.checked)" class="w-4 h-4 text-blue-600 rounded">
+            </div>
+
             <div class="flex gap-2 pt-1">
                 <button onclick="computeOSRMRoute()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-lg shadow-indigo-500/20">
                     <i class="fa-solid fa-location-arrow mr-1"></i> Start Route
@@ -324,6 +333,14 @@
                 <input type="checkbox" id="chk-autolock" checked onchange="autoLockCamera = this.checked" class="w-4 h-4 text-blue-600 rounded">
             </div>
 
+            <div class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <div>
+                    <span class="text-xs font-bold text-gray-800 dark:text-white block">Avoid Tolls (Portagens)</span>
+                    <span class="text-[10px] text-gray-400">Route via national roads (N/IC)</span>
+                </div>
+                <input type="checkbox" id="chk-avoid-tolls-settings" onchange="syncTollPreference(this.checked)" class="w-4 h-4 text-blue-600 rounded">
+            </div>
+
             <div class="grid grid-cols-2 gap-2 pt-1">
                 <button onclick="exportCustomData()" class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white p-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-gray-200 dark:border-gray-700">
                     <i class="fa-solid fa-download text-blue-500"></i> Export JSON
@@ -346,6 +363,7 @@
         let userHeading = 0;
         let watchPositionId = null;
         let autoLockCamera = true;
+        let avoidTolls = false;
         let audioAlertsEnabled = true;
         let audioCtx = null;
 
@@ -354,14 +372,14 @@
         let rvmPolylines = [];
         let mapMarkers = [];
 
-// CARTO API Key
-const CARTO_KEY = 'cb1_4awl_1_c4e78ffd72d0943069f99046';
+        // CARTO API Key
+        const CARTO_KEY = 'cb1_4awl_1_c4e78ffd72d0943069f99046';
 
-// Tile URLs with API key attached
-const TILE_URLS = {
-    light: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`,
-    dark: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`
-};
+        // Tile URLs with API key attached
+        const TILE_URLS = {
+            light: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`,
+            dark: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`
+        };
 
         // Fixed Radar Catalog (Portugal)
         const FIXED_RADARS = [
@@ -445,6 +463,26 @@ const TILE_URLS = {
             tileLayer = L.tileLayer(isDarkStyle ? TILE_URLS.dark : TILE_URLS.light, { maxZoom: 19 }).addTo(map);
         }
 
+        function syncTollPreference(isAvoid) {
+            avoidTolls = isAvoid;
+            document.getElementById('chk-avoid-tolls').checked = isAvoid;
+            document.getElementById('chk-avoid-tolls-settings').checked = isAvoid;
+            
+            // Re-route dynamically if navigation is currently active
+            if (currentRoutePolyline) {
+                computeOSRMRoute();
+            }
+        }
+
+        // Calculate dynamic camera zoom based on vehicle speed
+        function calculateDynamicZoom(speedKmh) {
+            if (speedKmh <= 15) return 17; // Standing still / heavy traffic: close zoom
+            if (speedKmh <= 45) return 16; // City driving (30-50 km/h)
+            if (speedKmh <= 80) return 15; // Regional roads (70-80 km/h)
+            if (speedKmh <= 100) return 14; // Expressways (90-100 km/h)
+            return 13; // Highway speed (120+ km/h): wide zoom
+        }
+
         function playAlertTone(type = 'fixed') {
             if (!audioAlertsEnabled) return;
             try {
@@ -506,16 +544,16 @@ const TILE_URLS = {
                             iconAnchor: [10, 10]
                         });
                         userMarker = L.marker([lat, lng], { icon }).addTo(map);
-                        map.setView([lat, lng], 15);
+                        map.setView([lat, lng], calculateDynamicZoom(speed));
                     } else {
                         userMarker.setLatLng([lat, lng]);
-                        // Update heading cone rotation if available
                         const cone = document.querySelector('.user-heading-cone');
                         if (cone) cone.style.transform = `rotate(${heading}deg)`;
                     }
 
                     if (autoLockCamera) {
-                        map.panTo([lat, lng], { animate: true });
+                        const targetZoom = calculateDynamicZoom(speed);
+                        map.setView([lat, lng], targetZoom, { animate: true });
                     }
 
                     checkProximity(lat, lng);
@@ -532,18 +570,17 @@ const TILE_URLS = {
             document.getElementById('chk-autolock').checked = true;
             document.getElementById('recenter-icon').className = 'fa-solid fa-crosshairs text-lg text-blue-600';
             if (userCoords) {
-                map.flyTo([userCoords.lat, userCoords.lng], 16, { animate: true });
+                const speed = parseInt(document.getElementById('speedometer-val').innerText) || 0;
+                map.flyTo([userCoords.lat, userCoords.lng], calculateDynamicZoom(speed), { animate: true });
             }
         }
 
         function renderAllMapMarkers() {
-            // Clear existing
             mapMarkers.forEach(m => map.removeLayer(m));
             rvmPolylines.forEach(p => map.removeLayer(p));
             mapMarkers = [];
             rvmPolylines = [];
 
-            // 1. Render Fixed Radars
             FIXED_RADARS.forEach(r => {
                 const icon = L.divIcon({
                     html: `<div class="bg-red-600 text-white w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center text-xs font-bold">
@@ -557,7 +594,6 @@ const TILE_URLS = {
                 mapMarkers.push(m);
             });
 
-            // 2. Render Average Speed Zones (RVM)
             AVERAGE_SPEED_ZONES.forEach(rvm => {
                 const startIcon = L.divIcon({
                     html: `<div class="bg-amber-500 text-white w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-[10px] font-bold">A</div>`,
@@ -582,7 +618,6 @@ const TILE_URLS = {
                 rvmPolylines.push(poly);
             });
 
-            // 3. Render PSP Mobile Schedule Spots
             customPspRadars.forEach(psp => {
                 const icon = L.divIcon({
                     html: `<div class="bg-blue-600 text-white w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center text-xs font-bold">
@@ -712,13 +747,11 @@ const TILE_URLS = {
             let closestDist = Infinity;
             let closestRadar = null;
 
-            // Check fixed
             FIXED_RADARS.forEach(r => {
                 const d = getDistanceMeters(uLat, uLng, r.lat, r.lng);
                 if (d < closestDist) { closestDist = d; closestRadar = r; }
             });
 
-            // Check RVM
             AVERAGE_SPEED_ZONES.forEach(rvm => {
                 const d = getDistanceMeters(uLat, uLng, rvm.start.lat, rvm.start.lng);
                 if (d < closestDist) { closestDist = d; closestRadar = { name: rvm.name, speed: rvm.speed, type: 'rvm' }; }
@@ -763,23 +796,35 @@ const TILE_URLS = {
             }
 
             try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${orig.lng},${orig.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`);
+                // Attach exclude=toll query parameter when Avoid Tolls is enabled
+                let apiUrl = `https://router.project-osrm.org/route/v1/driving/${orig.lng},${orig.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`;
+                if (avoidTolls) {
+                    apiUrl += `&exclude=toll`;
+                }
+
+                const res = await fetch(apiUrl);
                 const data = await res.json();
 
-                if (!data.routes || data.routes.length === 0) return;
+                if (!data.routes || data.routes.length === 0) {
+                    alert("No route found matching criteria.");
+                    return;
+                }
 
                 const route = data.routes[0];
                 const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
 
                 if (currentRoutePolyline) map.removeLayer(currentRoutePolyline);
-                currentRoutePolyline = L.polyline(coords, { color: '#1a73e8', weight: 6, opacity: 0.9 }).addTo(map);
+                
+                // Polyline style (amber line if avoiding tolls)
+                const polyColor = avoidTolls ? '#f59e0b' : '#1a73e8';
+                currentRoutePolyline = L.polyline(coords, { color: polyColor, weight: 6, opacity: 0.9 }).addTo(map);
                 map.fitBounds(currentRoutePolyline.getBounds(), { padding: [40, 40] });
 
                 const distKm = (route.distance / 1000).toFixed(1);
                 const durationMin = Math.round(route.duration / 60);
 
                 document.getElementById('nav-banner').classList.remove('hidden');
-                document.getElementById('nav-route-stats').innerText = `${distKm} km • ${durationMin} min`;
+                document.getElementById('nav-route-stats').innerText = `${distKm} km • ${durationMin} min${avoidTolls ? ' (No Tolls)' : ''}`;
 
                 togglePanel('route-sheet');
             } catch (err) {
