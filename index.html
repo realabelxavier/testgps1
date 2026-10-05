@@ -1152,13 +1152,22 @@
                 profile: 'driving'
             };
 
+            const routeRouter = L.Routing.osrmv1(routerOptions);
+
+            // Leaflet Routing Machine does not pass arbitrary OSRM query
+            // parameters from "requestParameters", so append exclude=toll
+            // directly to the OSRM route URL when requested.
             if (state.avoidTolls) {
-                routerOptions.requestParameters = { exclude: 'toll' };
+                const originalBuildRouteUrl = routeRouter.buildRouteUrl.bind(routeRouter);
+                routeRouter.buildRouteUrl = function(waypoints, options) {
+                    const url = originalBuildRouteUrl(waypoints, options);
+                    return url + (url.includes('?') ? '&' : '?') + 'exclude=toll';
+                };
             }
 
             state.activeRouteControl = L.Routing.control({
                 waypoints: routeWaypoints,
-                router: L.Routing.osrmv1(routerOptions),
+                router: routeRouter,
                 lineOptions: { styles: [{ color: '#3b82f6', opacity: 0.85, weight: 6 }] },
                 createMarker: function(i, wp) {
                     if (i === 0) return null;
